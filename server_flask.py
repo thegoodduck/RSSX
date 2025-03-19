@@ -77,7 +77,7 @@ def get_post(post_id):
             post_path = os.path.join(POSTS_DIRECTORY, filename)
             with open(post_path, 'r') as file:
                 content = file.read()
-                if f"ID: {post_id}" in content:
+                if f"ID: {post_id}\n" in content:  # Ensure exact match with newline
                     return content
     return None  # Post not found
 
@@ -130,6 +130,23 @@ def get_post_by_id(post_id):
         return jsonify({"post": post_content}), 200
     else:
         return jsonify({"error": "Post not found"}), 404
+@app.route('/register', methods=['POST'])
+def register():
+    """Endpoint to register a username for the client IP."""
+    data = request.json
+    if not data or 'username' not in data:
+        return jsonify({"error": "Missing 'username' field"}), 400
+    
+    username = data['username']
+    ip = request.remote_addr  # Get the IP address of the client
+
+    # Check if the username is already registered
+    if username in ip_to_username.values():
+        return jsonify({"error": "Username already taken"}), 400
+
+    # Register the username for the IP
+    ip_to_username[ip] = username
+    return jsonify({"message": f"User '{username}' registered successfully"}), 200
 
 if __name__ == '__main__':
     # Load RSA keys
@@ -137,3 +154,4 @@ if __name__ == '__main__':
 
     # Start the Flask server
     app.run(host='0.0.0.0', port=5000)
+
