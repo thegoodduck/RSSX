@@ -46,8 +46,8 @@ def view_post():
     # Check if the request was successful
     if response.status_code == 200:
         post = response.json()
-        print(f"Author: {post['author']}")
-        print(f"Content: {post['content']}")
+        print(f"Author: {post.get('author', 'Unknown author')}")
+        print(f"Content: {post.get('content', 'Unknown content')}")
     else:
         print(f"Error: {response.json().get('error', 'Post not found')}")
 
@@ -75,3 +75,4 @@ def main_menu():
 
 if __name__ == "__main__":
     main_menu()
+
