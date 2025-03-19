@@ -1,5 +1,9 @@
 import requests
 import json
+from colorama import Fore, Style, init
+
+# Initialize colorama
+init(autoreset=True)
 
 # Server URL
 server_url = input('Enter the server URL (e.g., http://localhost:5000): ')
@@ -39,6 +43,7 @@ def create_post():
         print(f"Error: {response.json().get('error', 'Unknown error')}")
 
 def view_post():
+    """View a post by ID."""
     # Input post ID to view
     post_id = input("Enter post ID to view: ")
     response = requests.get(f"{server_url}/post/{post_id}")
@@ -70,6 +75,23 @@ def view_post():
     else:
         print(f"Error: {response.json().get('error', 'Post not found')}")
 
+def view_feed():
+    """Fetch and display the post feed."""
+    response = requests.get(f"{server_url}/feed")
+
+    if response.status_code == 200:
+        feed_data = response.json().get('feed', [])
+        
+        if feed_data:
+            print(f"\nFeed of Posts (ID's only):")
+            for idx, post_id in enumerate(feed_data, start=1):
+                # Color each post ID
+                print(f"{Fore.GREEN}Post {idx}: {Fore.YELLOW}{post_id}")
+        else:
+            print(f"{Fore.RED}No posts found in feed.")
+    else:
+        print(f"Error: {response.json().get('error', 'Unable to fetch feed')}")
+
 def main_menu():
     """Main menu to navigate the client options."""
     # Register user at the beginning
@@ -79,7 +101,8 @@ def main_menu():
         print("\nMenu:")
         print("1. Create a new post")
         print("2. View a post by ID")
-        print("3. Exit")
+        print("3. View Feed of Posts")
+        print("4. Exit")
         choice = input("Enter your choice: ")
 
         if choice == "1":
@@ -87,6 +110,8 @@ def main_menu():
         elif choice == "2":
             view_post()
         elif choice == "3":
+            view_feed()  # Show feed
+        elif choice == "4":
             print("Exiting...")
             break
         else:
@@ -94,3 +119,4 @@ def main_menu():
 
 if __name__ == "__main__":
     main_menu()
+
