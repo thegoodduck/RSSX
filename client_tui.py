@@ -2,7 +2,7 @@ import requests
 import json
 
 # Server URL
-server_url = "http://localhost:5000"
+server_url = input('Enter the server URL (e.g., http://localhost:5000): ')
 
 def register_user():
     """Register the user with the server."""
@@ -39,15 +39,34 @@ def create_post():
         print(f"Error: {response.json().get('error', 'Unknown error')}")
 
 def view_post():
-    """View a post by its ID."""
+    # Input post ID to view
     post_id = input("Enter post ID to view: ")
     response = requests.get(f"{server_url}/post/{post_id}")
 
     # Check if the request was successful
     if response.status_code == 200:
-        post = response.json()
-        print(f"Author: {post.get('author', 'Unknown author')}")
-        print(f"Content: {post.get('content', 'Unknown content')}")
+        post_data = response.json()
+        post_content = post_data.get('post', '')
+
+        if post_content:
+            # Split the post content into lines
+            post_lines = post_content.split('\n')
+            post_info = {line.split(": ")[0]: line.split(": ")[1] for line in post_lines if ": " in line}
+
+            # Now you can access fields like 'ID', 'Author', 'Content', etc.
+            post_id = post_info.get("ID", "No ID found")
+            author = post_info.get("Author", "No author found")
+            content = post_info.get("Content", "No content available")
+            timestamp = post_info.get("Timestamp", "No timestamp available")
+            signature = post_info.get("Signature", "No signature found")
+
+            print(f"Post ID: {post_id}")
+            print(f"Author: {author}")
+            print(f"Content: {content}")
+            print(f"Created At: {timestamp}")
+            print(f"Signature: {signature}")
+        else:
+            print("Post content not found")
     else:
         print(f"Error: {response.json().get('error', 'Post not found')}")
 
@@ -75,4 +94,3 @@ def main_menu():
 
 if __name__ == "__main__":
     main_menu()
-
