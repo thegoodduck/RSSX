@@ -1,122 +1,186 @@
 import requests
 import json
-from colorama import Fore, Style, init
+import os
 
-# Initialize colorama
-init(autoreset=True)
+# Config File Path
+CONF_FILE = 'conf.txt'
 
-# Server URL
-server_url = input('Enter the server URL (e.g., http://localhost:5000): ')
 
-def register_user():
-    """Register the user with the server."""
+def load_server_preferences():
+    """Load server preferences from the conf.txt file."""
+    if os.path.exists(CONF_FILE):
+        with open(CONF_FILE, 'r') as file:
+            servers = [line.strip() for line in file.readlines()]
+        return servers
+    return []
+
+
+def save_server_preferences(servers):
+    """Save server preferences to the conf.txt file."""
+    with open(CONF_FILE, 'w') as file:
+        for server in servers:
+            file.write(f"{server}\n")
+
+
+def register_user(server_url):
+    """Register the user with a specific server."""
     username = input("Enter your username: ")
-    data = {
-        "username": username
-    }
-
-    # Send POST request to register the user
+    data = {"username": username}
     headers = {'Content-Type': 'application/json'}
     response = requests.post(f"{server_url}/register", json=data, headers=headers)
 
-    # Check if the registration was successful
     if response.status_code == 200:
-        print(f"User registered successfully: {response.json()['message']}")
+        print(f"User registered successfully on {server_url}: {response.json()['message']}")
     else:
-        print(f"Error: {response.json().get('error', 'Unknown error')}")
+        print(f"Error on {server_url}: {response.json().get('error', 'Unknown error')}")
 
-def create_post():
-    """Create a new post."""
+
+def create_post(server_url):
+    """Create a new post on a specific server."""
     content = input("Enter post content: ")
-    data = {
-        "content": content
-    }
-
-    # Send POST request to create the post
+    data = {"content": content}
     headers = {'Content-Type': 'application/json'}
     response = requests.post(f"{server_url}/post", json=data, headers=headers)
 
-    # Check if the request was successful
     if response.status_code == 200:
-        print(f"Post successfully saved: {response.json()['post_filename']}")
+        print(f"Post successfully saved on {server_url}: {response.json()['post_filename']}")
     else:
-        print(f"Error: {response.json().get('error', 'Unknown error')}")
+        print(f"Error on {server_url}: {response.json().get('error', 'Unknown error')}")
 
-def view_post():
-    """View a post by ID."""
-    # Input post ID to view
+
+def view_post(server_url):
+    """View a post by ID from a specific server."""
     post_id = input("Enter post ID to view: ")
     response = requests.get(f"{server_url}/post/{post_id}")
 
-    # Check if the request was successful
     if response.status_code == 200:
         post_data = response.json()
         post_content = post_data.get('post', '')
 
         if post_content:
-            # Split the post content into lines
             post_lines = post_content.split('\n')
             post_info = {line.split(": ")[0]: line.split(": ")[1] for line in post_lines if ": " in line}
 
-            # Now you can access fields like 'ID', 'Author', 'Content', etc.
-            post_id = post_info.get("ID", "No ID found")
-            author = post_info.get("Author", "No author found")
-            content = post_info.get("Content", "No content available")
-            timestamp = post_info.get("Timestamp", "No timestamp available")
-            signature = post_info.get("Signature", "No signature found")
-
-            print(f"Post ID: {post_id}")
-            print(f"Author: {author}")
-            print(f"Content: {content}")
-            print(f"Created At: {timestamp}")
-            print(f"Signature: {signature}")
+            print("\n--- Post Details ---")
+            print(f"Post ID: {post_info.get('ID', 'No ID found')}")
+            print(f"Author: {post_info.get('Author', 'No author found')}")
+            print(f"Content: {post_info.get('Content', 'No content available')}")
+            print(f"Created At: {post_info.get('Timestamp', 'No timestamp available')}")
+            print(f"Signature: {post_info.get('Signature', 'No signature found')}")
+            print("--------------------\n")
         else:
             print("Post content not found")
     else:
-        print(f"Error: {response.json().get('error', 'Post not found')}")
+        print(f"Error on {server_url}: {response.json().get('error', 'Post not found')}")
 
-def view_feed():
-    """Fetch and display the post feed."""
-    response = requests.get(f"{server_url}/feed")
 
-    if response.status_code == 200:
-        feed_data = response.json().get('feed', [])
-        
-        if feed_data:
-            print(f"\nFeed of Posts (ID's only):")
-            for idx, post_id in enumerate(feed_data, start=1):
-                # Color each post ID
-                print(f"{Fore.GREEN}Post {idx}: {Fore.YELLOW}{post_id}")
+def get_feed(servers):
+    """Get the RSS feed with post content from all servers."""
+    for server_url in servers:
+        print(f"\nFetching feed from {server_url}:")
+        response = requests.get(f"{server_url}/feed")
+        if response.status_code == 200:
+            try:
+                data = response.json()
+                posts = data.get("posts", [])
+
+                if not posts:
+                    print("No posts available.")
+                    return
+                
+                for post in posts:
+                    print("----- POST -----")
+                    lines = post.split("\n")
+                    for line in lines:
+                        print(line)
+                    print("----------------\n")
+
+            except json.JSONDecodeError:
+                print("Failed to parse server response.")
         else:
-            print(f"{Fore.RED}No posts found in feed.")
+            print(f"Error: {response.status_code}, {response.text}")
+
+def add_server(servers):
+    """Add a new server URL to the list of servers."""
+    new_server = input("Enter the server URL to add: ")
+    if new_server not in servers:
+        servers.append(new_server)
+        save_server_preferences(servers)
+        print(f"Server {new_server} added successfully.")
     else:
-        print(f"Error: {response.json().get('error', 'Unable to fetch feed')}")
+        print(f"Server {new_server} is already in the list.")
 
-def main_menu():
+
+def choose_server(servers):
+    """Allow user to choose a specific server from the list."""
+    if not servers:
+        print("No servers available.")
+        return None
+
+    print("\nAvailable Servers:")
+    for i, server in enumerate(servers, start=1):
+        print(f"{i}. {server}")
+
+    choice = input("Choose a server number (or press Enter to cancel): ")
+
+    if choice.isdigit():
+        index = int(choice) - 1
+        if 0 <= index < len(servers):
+            return servers[index]
+    print("Invalid choice.")
+    return None
+
+
+def main_menu(servers):
     """Main menu to navigate the client options."""
-    # Register user at the beginning
-    register_user()
-
     while True:
         print("\nMenu:")
-        print("1. Create a new post")
-        print("2. View a post by ID")
-        print("3. View Feed of Posts")
-        print("4. Exit")
+        print("1. Register user on all servers")
+        print("2. Register user on a specific server")
+        print("3. Create a new post on all servers")
+        print("4. Create a new post on a specific server")
+        print("5. View a post by ID from all servers")
+        print("6. View feeds from all servers")
+        print("7. Add a new server")
+        print("8. Exit")
+
         choice = input("Enter your choice: ")
 
         if choice == "1":
-            create_post()
+            for server_url in servers:
+                register_user(server_url)
         elif choice == "2":
-            view_post()
+            server = choose_server(servers)
+            if server:
+                register_user(server)
         elif choice == "3":
-            view_feed()  # Show feed
+            for server_url in servers:
+                create_post(server_url)
         elif choice == "4":
+            server = choose_server(servers)
+            if server:
+                create_post(server)
+        elif choice == "5":
+            for server_url in servers:
+                view_post(server_url)
+        elif choice == "6":
+            get_feed(servers)
+        elif choice == "7":
+            add_server(servers)
+        elif choice == "8":
             print("Exiting...")
             break
         else:
             print("Invalid choice. Please try again.")
 
+
 if __name__ == "__main__":
-    main_menu()
+    servers = load_server_preferences()
+
+    if not servers:
+        save_server_preferences([])
+        print("No servers found. Please add servers to the configuration file (conf.txt).")
+    else:
+        main_menu(servers)
+
 
