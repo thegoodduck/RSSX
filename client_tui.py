@@ -182,5 +182,3 @@ if __name__ == "__main__":
         print("No servers found. Please add servers to the configuration file (conf.txt).")
     else:
         main_menu(servers)
-
-
