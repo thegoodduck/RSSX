@@ -1,3 +1,123 @@
+# RSSX - Distributed Social Media Platform
+
+RSSX is a decentralized social media platform designed to empower users with control over their data and interactions. It provides a robust API, a web-based UI, and a Tkinter-based desktop client for seamless interaction. Built with Flask, SQLAlchemy, and modern web technologies, RSSX is a scalable and secure solution for distributed social networking.
+
+---
+
+## Features
+
+- **Decentralized Architecture**: Connect with multiple servers for a distributed social experience.
+- **User Authentication**: Secure login and registration with JWT-based authentication.
+- **Interactive Feed**: View and interact with posts in real-time.
+- **Cross-Platform Clients**: Access via web, desktop (Tkinter), or API.
+- **Extensible API**: RESTful API for developers to build custom integrations.
+
+---
+
+## Setup Instructions
+
+### 1. Clone the Repository
+```bash
+git clone https://github.com/your-username/rssx.git
+cd rssx
+```
+
+### 2. Set Up a Python Virtual Environment
+It is recommended to use a virtual environment to manage dependencies:
+```bash
+python3 -m venv venv
+source venv/bin/activate  # On Linux/Mac
+venv\Scripts\activate     # On Windows
+```
+
+### 3. Install Dependencies
+Install the required Python packages using `pip`:
+```bash
+pip install -r requirements.txt
+```
+
+### 4. Configure the Application
+Ensure the configuration file (`config.json` or similar) is set up correctly. Example:
+```json
+{
+    "DEFAULT_SERVER": "http://localhost:5000",
+    "DB_PATH": "rssx.db",
+    "JWT_SECRET_KEY": "your_secret_key",
+    "ENABLE_WEB_UI": true,
+    "WEB_TEMPLATE_DIR": "rssx/templates",
+    "WEB_STATIC_DIR": "rssx/static"
+}
+```
+
+### 5. Initialize the Database
+Run the following command to set up the database:
+```bash
+python3 -m rssx.database.db
+```
+
+### 6. Run the Server
+Start the Flask server on port 5000:
+```bash
+python3 server_flask.py
+```
+The server will be accessible at `http://localhost:5000`.
+
+---
+
+## Running the Clients
+
+### Web Client
+Access the web client by navigating to `http://localhost:5000` in your browser.
+
+### Tkinter Desktop Client
+Run the Tkinter client with:
+```bash
+python3 rssx/ui/tkinter/tkinter_client.py
+```
+
+---
+
+## Testing
+Run the test suite using `pytest`:
+```bash
+pytest
+```
+
+---
+
+## Project Structure
+```
+RSSX/
+├── rssx/
+│   ├── api/                # REST API implementation
+│   ├── database/           # Database models and utilities
+│   ├── security/           # Security and authentication
+│   ├── templates/          # HTML templates for the web UI
+│   ├── static/             # Static assets (CSS, JS, images)
+│   ├── ui/                 # Client implementations (Tkinter, Web)
+│   └── utils/              # Utility modules (config, logging)
+├── server_flask.py         # Main server entry point
+├── requirements.txt        # Python dependencies
+└── README.md               # Project documentation
+```
+
+---
+
+## Contributing
+Contributions are welcome! Please fork the repository and submit a pull request with your changes.
+
+---
+
+## License
+This project is licensed under the MIT License. See the `LICENSE` file for details.
+
+---
+
+## Contact
+For questions or support, please contact [your_email@example.com].
+
+---
+
 **Decentralized Social Media Protocol Specification**
 
 ## 1. Overview
