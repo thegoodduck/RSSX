@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+
+{% block title %}RSSX - Feed{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8 mx-auto">
+        <div class="card shadow-sm mb-4">
+            <div class="card-body">
+                <h2 class="card-title">Feed</h2>
+                <p class="card-text">View posts from this server and connected servers</p>
+                
+                {% if current_user %}
+                <div class="mb-4 p-3 bg-light rounded">
+                    <h5>Create a new post</h5>
+                    <form method="POST" action="{{ url_for('web.create_post') }}">
+                        <div class="mb-3">
+                            <textarea class="form-control" name="content" rows="3" placeholder="What's on your mind?" required></textarea>
+                        </div>
+                        <button type="submit" class="btn btn-primary">Post</button>
+                    </form>
+                </div>
+                {% endif %}
+            </div>
+        </div>
+
+        <div id="posts-container">
+            {% if posts %}
+                {% for post in posts %}
+                <div class="card shadow-sm mb-3 post">
+                    <div class="card-body">
+                        <div class="d-flex justify-content-between align-items-center mb-2">
+                            <h5 class="card-title mb-0">{{ post.author }}</h5>
+                            <small class="text-muted">{{ post.timestamp_formatted }}</small>
+                        </div>
+                        <p class="card-text">{{ post.content }}</p>
+                        <div class="d-flex justify-content-between">
+                            <div>
+                                <small class="text-muted">ID: {{ post.id }}</small>
+                            </div>
+                            <div>
+                                <span class="badge bg-secondary">Verified</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="alert alert-info">
+                    No posts available. {% if current_user %}Create the first post!{% else %}Please log in to post.{% endif %}
+                </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // Auto-refresh feed every 30 seconds
+    setTimeout(function() {
+        location.reload();
+    }, 30000);
+</script>
+{% endblock %}

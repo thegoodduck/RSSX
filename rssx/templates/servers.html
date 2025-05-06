@@ -1,0 +1,35 @@
+{% extends "index.html" %}
+
+{% block title %}Servers{% endblock %}
+
+{% block content %}
+<section class="servers">
+    <header>
+        <h1>Servers</h1>
+    </header>
+    <main>
+        {% if servers %}
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>IP</th>
+                    <th>Status</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for server in servers %}
+                <tr>
+                    <td>{{ server.name }}</td>
+                    <td>{{ server.ip }}</td>
+                    <td>{{ server.status }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        {% else %}
+        <p>No servers found.</p>
+        {% endif %}
+    </main>
+</section>
+{% endblock %}

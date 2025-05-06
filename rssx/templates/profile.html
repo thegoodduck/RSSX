@@ -1,0 +1,61 @@
+{% extends "base.html" %}
+
+{% block title %}RSSX - Profile{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8 mx-auto">
+        <div class="card shadow-sm">
+            <div class="card-header bg-primary text-white">
+                <h2 class="card-title mb-0">User Profile</h2>
+            </div>
+            <div class="card-body">
+                <div class="row mb-3">
+                    <div class="col-md-4 fw-bold">Username:</div>
+                    <div class="col-md-8">{{ current_user }}</div>
+                </div>
+                
+                <div class="row mb-3">
+                    <div class="col-md-4 fw-bold">Session Status:</div>
+                    <div class="col-md-8">
+                        <span class="badge bg-success">Active</span>
+                    </div>
+                </div>
+                
+                {% if token_exp %}
+                <div class="row mb-3">
+                    <div class="col-md-4 fw-bold">Session Expires:</div>
+                    <div class="col-md-8">{{ token_exp.strftime('%Y-%m-%d %H:%M:%S') }}</div>
+                </div>
+                {% endif %}
+                
+                <div class="d-grid gap-2 mt-4">
+                    <a href="{{ url_for('web.logout') }}" class="btn btn-danger">Logout</a>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card shadow-sm mt-4">
+            <div class="card-header bg-info text-white">
+                <h3 class="card-title mb-0">Security Information</h3>
+            </div>
+            <div class="card-body">
+                <ul class="list-group list-group-flush">
+                    <li class="list-group-item">
+                        <i class="bi bi-shield-lock"></i> Your password is securely hashed and never stored as plain text
+                    </li>
+                    <li class="list-group-item">
+                        <i class="bi bi-key"></i> Communication is encrypted with JWT tokens
+                    </li>
+                    <li class="list-group-item">
+                        <i class="bi bi-clock-history"></i> Session tokens expire after 24 hours for security
+                    </li>
+                    <li class="list-group-item">
+                        <i class="bi bi-fingerprint"></i> Posts are signed with RSA for verification
+                    </li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}

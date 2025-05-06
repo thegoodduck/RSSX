@@ -1,20 +1,30 @@
-.rsa_private.pem
-.rsa_public.pem
+# Private keys and certificates
 *.pem
 *.p12
 *.pfx
 *.key
 *.crt
 *.csr
-*.jks               
-*.p12
-*.pfx
 *.jks
-*.p12
-posts
-.venv
-__pycache__/
-..token.txt
-.users.json
+
+# Tokens and credentials
+*.token.txt
+*.users.json
 token.txt
 users.json
+*.env
+.env.*
+
+# Python-specific sensitive files
+.venv/
+__pycache__/
+
+# Posts or other private directories
+posts/
+
+# General sensitive files
+*.log
+*.bak
+*.swp
+*.tmp
+*.lock

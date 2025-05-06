@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+
+{% block title %}RSSX - Home{% endblock %}
+
+{% block content %}
+<div class="row">
+    <div class="col-lg-8 mx-auto">
+        <div class="card shadow-sm">
+            <div class="card-body">
+                <h1 class="card-title text-center mb-4">Welcome to RSSX</h1>
+                <p class="lead text-center">A distributed social media platform for secure communication</p>
+                
+                <hr class="my-4">
+                
+                {% if current_user %}
+                    <div class="mb-4">
+                        <h3>Create a new post</h3>
+                        <form method="POST" action="{{ url_for('web.create_post') }}">
+                            <div class="mb-3">
+                                <textarea class="form-control" name="content" rows="4" placeholder="What's on your mind?" required></textarea>
+                            </div>
+                            <div class="d-grid">
+                                <button type="submit" class="btn btn-primary">Post</button>
+                            </div>
+                        </form>
+                    </div>
+                    
+                    <div class="d-grid gap-2 mt-4">
+                        <a href="{{ url_for('web.feed') }}" class="btn btn-outline-primary">View Feed</a>
+                        <a href="{{ url_for('web.profile') }}" class="btn btn-outline-secondary">My Profile</a>
+                    </div>
+                {% else %}
+                    <div class="text-center">
+                        <p>Please login or register to start posting and connecting with others.</p>
+                        <div class="d-grid gap-2 col-6 mx-auto">
+                            <a href="{{ url_for('web.login') }}" class="btn btn-primary">Login</a>
+                            <a href="{{ url_for('web.register') }}" class="btn btn-outline-secondary">Register</a>
+                        </div>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+        
+        <div class="card shadow-sm mt-4">
+            <div class="card-body">
+                <h2 class="card-title">About RSSX</h2>
+                <p>RSSX is a distributed social media platform that emphasizes security and decentralization. Key features include:</p>
+                <ul>
+                    <li>Cryptographically signed posts to verify authenticity</li>
+                    <li>Distributed network of connected servers</li>
+                    <li>Secure authentication with JWT tokens</li>
+                    <li>Private communications through encryption</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
