@@ -3,7 +3,7 @@ import time
 import json
 import requests
 import bcrypt
-import jwt
+import jwt as pyjwt
 from flask import Flask, request, jsonify
 from Crypto.PublicKey import RSA
 from Crypto.Signature import pkcs1_15
@@ -90,18 +90,18 @@ def authenticate(username, password):
             "exp": int(time.time()) + 86400,  # 24 hours from now
             "iat": int(time.time())
         }
-        return jwt.encode(payload, SECRET_KEY, algorithm="HS256")
+        return pyjwt.encode(payload, SECRET_KEY, algorithm="HS256")
     return None
 
 # Decode JWT
 def decode_jwt(token):
     try:
-        data = jwt.decode(token, SECRET_KEY, algorithms=["HS256"])
+        data = pyjwt.decode(token, SECRET_KEY, algorithms=["HS256"])
         return data.get("username")
-    except jwt.ExpiredSignatureError:
+    except pyjwt.ExpiredSignatureError:
         print("Token expired")
         return None
-    except jwt.InvalidTokenError:
+    except pyjwt.InvalidTokenError:
         print("Invalid token")
         return None
     except Exception as e:
@@ -244,7 +244,7 @@ def get_post(post_id):
     
     return jsonify({"post": post_content}), 200
 
-@app.route('/register', methods=['POST'])
+@app.route('/register_ip', methods=['POST'])
 def register_ip():
     data = request.json
     if not data or 'username' not in data:

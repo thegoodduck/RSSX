@@ -1,7 +1,7 @@
 import requests
 import json
 import os
-import jwt
+import jwt as pyjwt
 import time
 import sys
 import getpass
@@ -31,13 +31,13 @@ def load_token():
             token = file.read().strip()
             # Check if token is still valid
             try:
-                decoded = jwt.decode(token, options={"verify_signature": False})
+                decoded = pyjwt.decode(token, options={"verify_signature": False})
                 exp_time = decoded.get('exp', 0)
                 if exp_time and time.time() > exp_time:
                     print("Your session has expired. Please log in again.")
                     return None
                 return token
-            except jwt.DecodeError:
+            except pyjwt.DecodeError:
                 return None
     except FileNotFoundError:
         return None
@@ -119,14 +119,14 @@ def login():
             
             # Decode token to get expiration
             try:
-                decoded = jwt.decode(token, options={"verify_signature": False})
+                decoded = pyjwt.decode(token, options={"verify_signature": False})
                 exp_time = decoded.get('exp', 0)
                 if exp_time:
                     exp_date = datetime.fromtimestamp(exp_time)
                     print(f"\n✓ Login successful! Session valid until {exp_date.strftime('%Y-%m-%d %H:%M:%S')}")
                 else:
                     print("\n✓ Login successful!")
-            except:
+            except pyjwt.DecodeError:
                 print("\n✓ Login successful!")
         else:
             error = response.json().get("error", "Invalid credentials")
@@ -143,9 +143,9 @@ def create_post():
 
     try:
         # Decode the JWT token to extract the username
-        decoded_token = jwt.decode(token, options={"verify_signature": False})
+        decoded_token = pyjwt.decode(token, options={"verify_signature": False})
         username = decoded_token.get("username")
-    except jwt.DecodeError:
+    except pyjwt.DecodeError:
         print("Invalid token. Please log in again.")
         return
 
@@ -214,7 +214,7 @@ def view_profile():
 
     try:
         # Decode the JWT to get user info
-        decoded = jwt.decode(token, options={"verify_signature": False})
+        decoded = pyjwt.decode(token, options={"verify_signature": False})
         username = decoded.get("username", "Unknown User")
         exp_time = decoded.get("exp", 0)
         iat_time = decoded.get("iat", 0)
@@ -238,7 +238,7 @@ def view_profile():
         else:
             print("Session expired. Please log in again.")
             
-    except jwt.DecodeError:
+    except pyjwt.DecodeError:
         print("Invalid token. Please log in again.")
         
 # Show help information
@@ -277,10 +277,11 @@ def menu():
         username = "Guest"
         if token:
             try:
-                decoded = jwt.decode(token, options={"verify_signature": False})
+                decoded = pyjwt.decode(token, options={"verify_signature": False})
                 username = decoded.get("username", "Guest")
-            except:
-                pass
+            except pyjwt.DecodeError:
+                print("Invalid token. Please log in again.")
+                token = None
             
         print(f"\nUser: {username} | {status}")
         print("\n1. Register\n2. Login\n3. Create Post\n4. View Feed")
