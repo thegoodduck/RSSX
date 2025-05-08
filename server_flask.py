@@ -318,7 +318,7 @@ def run_server(config=None, host="0.0.0.0", port=5000, debug=False):
     debug = debug if debug is not None else config.get("DEBUG")
     
     # Start the server
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host=host, port=port, debug=debug)
 
 def run_tkinter_ui(config=None):
     """Run the Tkinter UI client"""

@@ -6,7 +6,15 @@ import os
 import threading
 import time
 from datetime import datetime
+import tkinter.simpledialog as simpledialog
 
+_temp_root = tk.Tk()
+_temp_root.withdraw()
+default_server_url = simpledialog.askstring("Server URL", "Enter the server URL:", initialvalue="http://localhost:5000")
+_temp_root.destroy()
+
+if default_server_url:
+    os.environ["DEFAULT_SERVER"] = default_server_url
 class RSSXTkinterUI:
     def __init__(self, config):
         """Initialize Tkinter UI with configuration"""
@@ -34,7 +42,6 @@ class RSSXTkinterUI:
         self.create_register_tab()
         self.create_feed_tab()
         self.create_post_tab()
-        self.create_servers_tab()
         self.create_profile_tab()
         
         # Status bar
@@ -144,48 +151,6 @@ class RSSXTkinterUI:
         post_button = ttk.Button(post_form, text="Post", command=self.create_post)
         post_button.pack(side=tk.RIGHT, pady=10)
     
-    def create_servers_tab(self):
-        """Create the servers tab"""
-        servers_frame = ttk.Frame(self.notebook)
-        self.notebook.add(servers_frame, text="Servers")
-        
-        # Servers form
-        servers_form = ttk.Frame(servers_frame, padding=20)
-        servers_form.pack(fill=tk.BOTH, expand=True)
-        
-        # Add server
-        ttk.Label(servers_form, text="Add Server:").grid(row=0, column=0, sticky=tk.W, pady=5)
-        self.server_url_var = tk.StringVar()
-        server_url_entry = ttk.Entry(servers_form, textvariable=self.server_url_var, width=40)
-        server_url_entry.grid(row=0, column=1, sticky=tk.W, pady=5)
-        
-        add_server_button = ttk.Button(servers_form, text="Add", command=self.add_server)
-        add_server_button.grid(row=0, column=2, padx=5)
-        
-        # Server list
-        ttk.Label(servers_form, text="Connected Servers:").grid(row=1, column=0, sticky=tk.W, pady=5)
-        
-        # Create a frame for the server list
-        server_list_frame = ttk.Frame(servers_form)
-        server_list_frame.grid(row=2, column=0, columnspan=3, sticky=tk.NSEW)
-        servers_form.rowconfigure(2, weight=1)
-        servers_form.columnconfigure(1, weight=1)
-        
-        # Scrollbar
-        scrollbar = ttk.Scrollbar(server_list_frame)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        
-        # Listbox
-        self.server_listbox = tk.Listbox(server_list_frame)
-        self.server_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        
-        # Link listbox and scrollbar
-        self.server_listbox.config(yscrollcommand=scrollbar.set)
-        scrollbar.config(command=self.server_listbox.yview)
-        
-        # Refresh button
-        refresh_button = ttk.Button(servers_form, text="Refresh", command=self.get_servers)
-        refresh_button.grid(row=3, column=0, pady=10)
     
     def create_profile_tab(self):
         """Create the profile tab"""
@@ -223,12 +188,12 @@ class RSSXTkinterUI:
         
         try:
             response = requests.post(
-                f"{self.server_url}/login",
+                f"{self.server_url}/api/login",
                 json={"username": username, "password": password},
                 timeout=5
             )
             
-            if response.status_code == 200:
+            if response.status_code:
                 token_data = response.json()
                 self.token = token_data.get("token")
                 self.username = username
@@ -275,7 +240,7 @@ class RSSXTkinterUI:
         
         try:
             response = requests.post(
-                f"{self.server_url}/register",
+                f"{self.server_url}/api/register",
                 json={"username": username, "password": password},
                 timeout=5
             )
@@ -306,7 +271,7 @@ class RSSXTkinterUI:
         
         try:
             headers = {"Authorization": f"Bearer {self.token}"}
-            response = requests.get(f"{self.server_url}/feed", headers=headers, timeout=5)
+            response = requests.get(f"{self.server_url}/api/feed", headers=headers, timeout=5)
             
             if response.status_code == 200:
                 posts = response.json().get("posts", [])
@@ -375,7 +340,7 @@ class RSSXTkinterUI:
         try:
             headers = {"Authorization": f"Bearer {self.token}"}
             response = requests.post(
-                f"{self.server_url}/post",
+                f"{self.server_url}/api/post",
                 json={"content": content},
                 headers=headers,
                 timeout=5
@@ -402,7 +367,7 @@ class RSSXTkinterUI:
     def get_servers(self):
         """Get the list of connected servers"""
         try:
-            response = requests.get(f"{self.server_url}/list_servers", timeout=5)
+            response = requests.get(f"{self.server_url}/api/list_servers", timeout=5)
             
             if response.status_code == 200:
                 servers = response.json().get("connected_servers", [])
@@ -419,42 +384,6 @@ class RSSXTkinterUI:
         except requests.RequestException as e:
             messagebox.showerror("Connection Error", str(e))
     
-    def add_server(self):
-        """Add a new server"""
-        if not self.token:
-            messagebox.showwarning("Warning", "Please log in first")
-            self.notebook.select(0)  # Login tab
-            return
-        
-        server_url = self.server_url_var.get()
-        
-        if not server_url:
-            messagebox.showerror("Error", "Server URL cannot be empty")
-            return
-        
-        try:
-            headers = {"Authorization": f"Bearer {self.token}"}
-            response = requests.post(
-                f"{self.server_url}/add_server",
-                json={"server_url": server_url},
-                headers=headers,
-                timeout=5
-            )
-            
-            if response.status_code == 200 or response.status_code == 201:
-                messagebox.showinfo("Success", f"Server {server_url} added successfully")
-                
-                # Clear the server URL field
-                self.server_url_var.set("")
-                
-                # Refresh the server list
-                self.get_servers()
-            else:
-                error_msg = response.json().get("error", "Failed to add server")
-                messagebox.showerror("Server Error", error_msg)
-        
-        except requests.RequestException as e:
-            messagebox.showerror("Connection Error", str(e))
     
     def logout(self):
         """Log out the current user"""
@@ -571,6 +500,8 @@ def launch_tkinter_ui(config):
     
 if __name__ == "__main__":
     # If run directly, create a basic config and start the UI
-    from rssx.utils.config import Config
+    import sys
+    sys.path.append('/home/viktor/Documents/RSSX/rssx')
+    from utils.config import Config
     config = Config()
     launch_tkinter_ui(config)

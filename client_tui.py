@@ -89,7 +89,7 @@ def register():
         
     print("Registering user...")
     try:
-        response = requests.post(f"{SERVER_URL}/register", 
+        response = requests.post(f"{SERVER_URL}/api/register", 
                                json={"username": username, "password": password}, 
                                timeout=5)
         
@@ -109,7 +109,7 @@ def login():
     
     print("Logging in...")
     try:
-        response = requests.post(f"{SERVER_URL}/login", 
+        response = requests.post(f"{SERVER_URL}/api/login", 
                               json={"username": username, "password": password},
                               timeout=5)
         
@@ -154,7 +154,7 @@ def create_post():
         "Authorization": f"Bearer {token}",
         "Username": username  # Add the username to the headers
     }
-    response = requests.post(f"{SERVER_URL}/post", json={"content": content}, headers=headers)
+    response = requests.post(f"{SERVER_URL}/api/post", json={"content": content}, headers=headers)
 
     if response.status_code == 200:
         print(f"Post successfully created: {response.json()}")
@@ -172,7 +172,7 @@ def get_feed():
     headers = {"Authorization": f"Bearer {token}"}  # Use JWT token for authentication
     
     try:
-        response = requests.get(f"{SERVER_URL}/feed", headers=headers, timeout=10)
+        response = requests.get(f"{SERVER_URL}/api/feed", headers=headers, timeout=10)
         
         if response.status_code == 200:
             posts = response.json().get("posts", [])
@@ -192,7 +192,7 @@ def get_feed():
 def check_server_status():
     print("\n=== Server Status ===")
     try:
-        response = requests.get(f"{SERVER_URL}/list_servers", timeout=3)
+        response = requests.get(f"{SERVER_URL}/api/list_servers", timeout=3)
         if response.status_code == 200:
             servers = response.json().get("connected_servers", [])
             print(f"✓ Server is online at {SERVER_URL}")
