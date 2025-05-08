@@ -46,6 +46,62 @@ class RSSXApi:
 
         # Health check route
         self.api.route('/health', methods=['GET'])(self.health_check)
+        # Comment to post route
+        self.api.route('/comment', methods=['POST'])(self.create_comment)
+    def create_comment(self):
+        """Create a new comment on a post and append it to the original post content"""
+        # Inline authentication
+        token = request.headers.get("Authorization")
+        if not token or not token.startswith("Bearer "):
+            return jsonify({"error": "Authorization token is missing or invalid"}), 401
+        token = token.split("Bearer ")[1]
+        payload = self.security.verify_jwt(token)
+        if not payload:
+            return jsonify({"error": "Invalid or expired token"}), 401
+        username = payload.get('username')
+
+        data = request.json
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        content = data.get('content')
+        post_id = data.get('post_id')
+        if not content or not post_id:
+            return jsonify({"error": "Content and post_id are required"}), 400
+
+        # Create comment data
+        timestamp = int(time.time())
+        comment_data = {
+            "author": username,
+            "timestamp": timestamp,
+            "content": content,
+            "post_id": post_id
+        }
+
+        # Sign the comment data
+        signature_data = f"{comment_data['timestamp']}{comment_data['author']}{comment_data['content']}"
+        comment_data["signature"] = self.security.sign_data(signature_data)
+
+        # Save comment to database
+        comment_id = self.db.save_comment(comment_data)
+        if not comment_id:
+            logger.error(f"Failed to save comment for user: {username}")
+            return jsonify({"error": "Failed to save comment"}), 500
+        
+        # Append the comment to the original post content: add two lines (a blank line and the comment with username)
+        original_post = self.db.get_post_by_id(post_id)
+        if not original_post:
+            logger.error(f"Original post with ID {post_id} not found")
+            return jsonify({"error": "Original post not found"}), 404
+
+        new_content = original_post["content"] + "\n\n" + f"{username}: {content}"
+        update_success = self.db.update_post(post_id, new_content)
+        if not update_success:
+            logger.error(f"Failed to update post {post_id} with new comment")
+            return jsonify({"error": "Failed to update post with comment"}), 500
+        
+        logger.info(f"Comment created by {username} with ID: {comment_id} and appended to post {post_id}")
+        return jsonify({"message": "Comment created and appended successfully", "comment_id": comment_id}), 201
 
     def register(self):
         """Register a new user"""

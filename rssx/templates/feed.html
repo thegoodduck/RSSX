@@ -43,6 +43,21 @@
                             </div>
                         </div>
                     </div>
+                    <div class="card-footer">
+                        <!-- Comments list container -->
+                        <ul class="list-group list-group-flush mb-2" id="comments-{{ post.id }}">
+                            <!-- Existing comments may be injected here -->
+                        </ul>
+                        {% if current_user %}
+                        <form onsubmit="submitComment(event, '{{ post.id }}')">
+                            <div class="input-group">
+                                <!-- You can leave name as is or change it; we now use the value directly -->
+                                <input type="text" class="form-control" id="comment-input-{{ post.id }}" placeholder="Add a comment..." required>
+                                <button class="btn btn-secondary" type="submit">Comment</button>
+                            </div>
+                        </form>
+                        {% endif %}
+                    </div>
                 </div>
                 {% endfor %}
             {% else %}
@@ -57,9 +72,40 @@
 
 {% block scripts %}
 <script>
-    // Auto-refresh feed every 30 seconds
+    // Auto refresh feed every 30 seconds
     setTimeout(function() {
         location.reload();
     }, 30000);
+
+    // Function to submit a comment to /api/comment
+    function submitComment(event, postId) {
+        event.preventDefault();
+        var input = document.getElementById('comment-input-' + postId);
+        var commentText = input.value.trim();
+        if (!commentText) {
+            return;
+        }
+
+        fetch('/api/comment', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            // Send the comment text under the "text" key
+            body: JSON.stringify({
+                post_id: postId,
+                text: commentText
+            })
+        })
+        .then(response => {
+            if (response.ok) {
+                // Optionally update the comment list; for now just reload the page.
+                location.reload();
+            } else {
+                console.error('Error submitting comment.');
+            }
+        })
+        .catch(error => console.error('Error:', error));
+    }
 </script>
 {% endblock %}
