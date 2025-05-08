@@ -1,10 +1,10 @@
 flask==2.3.2
-requests==2.31.0
+requests==2.32.2
 sqlalchemy==2.0.21
 pandas==2.1.1
 numpy==1.26.0
 beautifulsoup4==4.12.2
 lxml==4.9.3
 pytest==7.4.2
-gunicorn==21.2.0
+gunicorn==23.0.0
 psycopg2-binary==2.9.8

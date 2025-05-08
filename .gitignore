@@ -12,6 +12,7 @@
 *.users.json
 token.txt
 users.json
+rssx.db
 *.env
 .env.*
 
@@ -28,3 +29,4 @@ posts/
 *.swp
 *.tmp
 *.lock
+
