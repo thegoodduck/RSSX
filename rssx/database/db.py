@@ -217,19 +217,18 @@ class Database:
             return None
     
     def get_all_posts(self):
-        """Get all posts"""
+        """Get all posts as a list of dicts"""
         try:
             conn = sqlite3.connect(self.db_path)
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            
+
             cursor.execute("SELECT * FROM posts ORDER BY timestamp DESC")
             rows = cursor.fetchall()
-            
+
             posts = []
             for row in rows:
-                post_content = f"ID: {row['id']}\nAuthor: {row['author']}\nTimestamp: {row['timestamp']}\nContent: {row['content']}\nSignature: {row['signature']}"
-                posts.append(post_content)
+                posts.append(dict(row))
             
             conn.close()
             return posts
@@ -238,7 +237,7 @@ class Database:
             return []
     
     def get_post_by_id(self, post_id):
-        """Get a specific post by ID"""
+        """Get a specific post by ID and return as a dict"""
         try:
             conn = sqlite3.connect(self.db_path)
             conn.row_factory = sqlite3.Row
@@ -246,12 +245,10 @@ class Database:
             
             cursor.execute("SELECT * FROM posts WHERE id = ?", (post_id,))
             row = cursor.fetchone()
+            conn.close()
             
             if row:
-                post_content = f"ID: {row['id']}\nAuthor: {row['author']}\nTimestamp: {row['timestamp']}\nContent: {row['content']}\nSignature: {row['signature']}"
-                return post_content
-            
-            conn.close()
+                return dict(row)
             return None
         except sqlite3.Error as e:
             logger.error(f"Database error in get_post_by_id: {str(e)}")
@@ -291,4 +288,55 @@ class Database:
             return result
         except sqlite3.Error as e:
             logger.error(f"Database error in add_server: {str(e)}")
+            return False
+    
+    def save_comment(self, comment_data):
+        """Save a new comment to the database and return its ID"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            # Ensure the comments table exists
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS comments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    author TEXT NOT NULL,
+                    timestamp INTEGER NOT NULL,
+                    content TEXT NOT NULL,
+                    post_id TEXT NOT NULL,
+                    signature TEXT NOT NULL
+                )
+            ''')
+            cursor.execute(
+                "INSERT INTO comments (author, timestamp, content, post_id, signature) VALUES (?, ?, ?, ?, ?)",
+                (
+                    comment_data["author"],
+                    comment_data["timestamp"],
+                    comment_data["content"],
+                    comment_data["post_id"],
+                    comment_data["signature"]
+                )
+            )
+            conn.commit()
+            comment_id = cursor.lastrowid
+            conn.close()
+            return comment_id
+        except sqlite3.Error as e:
+            logger.error(f"Database error in save_comment: {str(e)}")
+            return None
+
+    def update_post(self, post_id, new_content):
+        """Update the content of an existing post"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE posts SET content = ? WHERE id = ?",
+                (new_content, post_id)
+            )
+            conn.commit()
+            success = cursor.rowcount > 0
+            conn.close()
+            return success
+        except sqlite3.Error as e:
+            logger.error(f"Database error in update_post: {str(e)}")
             return False

@@ -33,7 +33,7 @@
                             <h5 class="card-title mb-0">{{ post.author }}</h5>
                             <small class="text-muted">{{ post.timestamp_formatted }}</small>
                         </div>
-                        <p class="card-text">{{ post.content }}</p>
+                        <p class="card-text">{{ post.content | replace('\n', '<br>') | safe }}</p>
                         <div class="d-flex justify-content-between">
                             <div>
                                 <small class="text-muted">ID: {{ post.id }}</small>
@@ -85,16 +85,19 @@
         if (!commentText) {
             return;
         }
-
+        
+        // Retrieve the token from the Flask app variable
+        var token = "{{ token }}";
+        
         fetch('/api/comment', {
             method: 'POST',
             headers: {
-                'Content-Type': 'application/json'
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + token
             },
-            // Send the comment text under the "text" key
             body: JSON.stringify({
                 post_id: postId,
-                text: commentText
+                content: commentText
             })
         })
         .then(response => {

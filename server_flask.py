@@ -2,7 +2,7 @@ import os
 import argparse
 import logging
 import threading
-from flask import Flask, session
+from flask import Flask, session, render_template
 from pathlib import Path
 
 # Import our modules
@@ -14,6 +14,7 @@ from rssx.ui.web.web_controller import WebUI
 from flask import Blueprint, request, jsonify
 import logging
 import time
+import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,7 @@ class RSSXApi:
         self.api.route('/health', methods=['GET'])(self.health_check)
         # Comment to post route
         self.api.route('/comment', methods=['POST'])(self.create_comment)
+
     def create_comment(self):
         """Create a new comment on a post and append it to the original post content"""
         # Inline authentication
@@ -87,19 +89,27 @@ class RSSXApi:
         if not comment_id:
             logger.error(f"Failed to save comment for user: {username}")
             return jsonify({"error": "Failed to save comment"}), 500
-        
-        # Append the comment to the original post content: add two lines (a blank line and the comment with username)
+
+        # Retrieve the original post
         original_post = self.db.get_post_by_id(post_id)
         if not original_post:
             logger.error(f"Original post with ID {post_id} not found")
             return jsonify({"error": "Original post not found"}), 404
 
-        new_content = original_post["content"] + "\n\n" + f"{username}: {content}"
+        # Create a separator including a link to the original post and a timestamp.
+        timestamp_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        separator = (
+            f"\n\n========== INFO - Original Post ID: {post_id} | {timestamp_str} | User: {username} ==========\n"
+        )
+        
+        # Append the comment to the original post content.
+        new_content = original_post["content"] + separator + f"{content}"
+
         update_success = self.db.update_post(post_id, new_content)
         if not update_success:
             logger.error(f"Failed to update post {post_id} with new comment")
             return jsonify({"error": "Failed to update post with comment"}), 500
-        
+
         logger.info(f"Comment created by {username} with ID: {comment_id} and appended to post {post_id}")
         return jsonify({"message": "Comment created and appended successfully", "comment_id": comment_id}), 201
 
@@ -157,6 +167,9 @@ class RSSXApi:
         if not token:
             logger.error(f"Failed to generate token for user: {username}")
             return jsonify({"error": "Failed to generate authentication token"}), 500
+
+        # Store token in session so we can access it in feed.html
+        session['token'] = token
 
         # Update last login time
         self.db.update_login_time(username)
@@ -301,7 +314,6 @@ class RSSXApi:
 
 def create_app(config=None):
     """Create and configure the Flask application"""
-    # If no config provided, create one
     if config is None:
         config = Config()
     
@@ -325,7 +337,6 @@ def create_app(config=None):
                 template_folder=config.get("WEB_TEMPLATE_DIR"),
                 static_folder=config.get("WEB_STATIC_DIR"))
     
-    # Configure Flask app
     app.config["SECRET_KEY"] = config.get("JWT_SECRET_KEY")
     app.config["SESSION_TYPE"] = "filesystem"
     
@@ -340,12 +351,11 @@ def create_app(config=None):
         app.register_blueprint(web_ui.web, url_prefix='/')
         logger.info("Web UI registered at /")
     
-    # Add default route for API users
     @app.route('/')
     def index():
         if config.get("ENABLE_WEB_UI"):
-            # If web UI is enabled, this will be handled by the web blueprint
-            pass
+            # Render feed.html and supply the JWT token from session (if available)
+            return render_template("feed.html", token=session.get("token"))
         else:
             return {
                 "status": "ok",

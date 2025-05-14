@@ -7,6 +7,9 @@ import threading
 import time
 from datetime import datetime
 import tkinter.simpledialog as simpledialog
+import webbrowser  # Add webbrowser for opening web UI
+import subprocess  # For HTML preview functionality
+import tempfile  # For creating temporary HTML files
 
 _temp_root = tk.Tk()
 _temp_root.withdraw()
@@ -22,12 +25,24 @@ class RSSXTkinterUI:
         self.server_url = config.get("DEFAULT_SERVER")
         self.token = None
         self.username = None
+        self.current_post_id = None  # Track the currently selected post
+        self.connected_servers = []  # List of connected servers
         
         # Create the main window
         self.root = tk.Tk()
         self.root.title("RSSX Client")
         self.root.geometry("800x600")
         self.root.minsize(600, 400)
+        
+        # Apply dark sleek style
+        self.style = ttk.Style(self.root)
+        self.style.theme_use('clam')
+        self.root.config(bg='#2e2e2e')
+        self.style.configure('TFrame', background='#2e2e2e')
+        self.style.configure('TLabel', background='#2e2e2e', foreground='#ffffff', font=('Arial', 12))
+        self.style.configure('TButton', font=('Arial', 12), padding=5)
+        self.style.configure('TNotebook', background='#2e2e2e')
+        self.style.configure('TNotebook.Tab', font=('Arial', 12), padding=[10, 5])
         
         # Set up the main container
         self.main_container = ttk.Frame(self.root)
@@ -42,6 +57,7 @@ class RSSXTkinterUI:
         self.create_register_tab()
         self.create_feed_tab()
         self.create_post_tab()
+        self.create_servers_tab()  # Enhanced servers tab
         self.create_profile_tab()
         
         # Status bar
@@ -130,7 +146,7 @@ class RSSXTkinterUI:
         
         self.feed_text = scrolledtext.ScrolledText(feed_content_frame, wrap=tk.WORD)
         self.feed_text.pack(fill=tk.BOTH, expand=True)
-        self.feed_text.config(state=tk.DISABLED)
+        self.feed_text.config(state=tk.DISABLED, bg="#1e1e1e", fg="#ffffff", insertbackground="white")
     
     def create_post_tab(self):
         """Create the post tab"""
@@ -146,11 +162,60 @@ class RSSXTkinterUI:
         self.post_content_var = tk.StringVar()
         self.post_content_text = scrolledtext.ScrolledText(post_form, wrap=tk.WORD, height=10)
         self.post_content_text.pack(fill=tk.BOTH, expand=True, pady=5)
+        self.post_content_text.config(bg="#1e1e1e", fg="#ffffff", insertbackground="white")
         
         # Post button
         post_button = ttk.Button(post_form, text="Post", command=self.create_post)
         post_button.pack(side=tk.RIGHT, pady=10)
     
+    def create_servers_tab(self):
+        """Create the servers tab"""
+        servers_frame = ttk.Frame(self.notebook)
+        self.notebook.add(servers_frame, text="Servers")
+        
+        # Servers form
+        servers_form = ttk.Frame(servers_frame, padding=20)
+        servers_form.pack(fill=tk.BOTH, expand=True)
+        
+        # Server URL input
+        ttk.Label(servers_form, text="Server URL:").grid(row=0, column=0, sticky=tk.W, pady=5)
+        self.server_url_var = tk.StringVar()
+        server_url_entry = ttk.Entry(servers_form, textvariable=self.server_url_var, width=40)
+        server_url_entry.grid(row=0, column=1, sticky=tk.W, pady=5)
+        
+        # Add server button
+        add_server_button = ttk.Button(servers_form, text="Add Server", command=self.add_server)
+        add_server_button.grid(row=0, column=2, sticky=tk.W, padx=5, pady=5)
+        
+        # Connected servers list
+        ttk.Label(servers_form, text="Connected Servers:").grid(row=1, column=0, sticky=tk.W, pady=5, columnspan=3)
+        
+        # Create a listbox with scrollbar for servers
+        servers_frame = ttk.Frame(servers_form)
+        servers_frame.grid(row=2, column=0, columnspan=3, sticky=tk.NSEW, pady=5)
+        
+        self.servers_listbox = tk.Listbox(servers_frame, height=10, width=50, bg="#1e1e1e", fg="#ffffff")
+        self.servers_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        
+        servers_scrollbar = ttk.Scrollbar(servers_frame, orient=tk.VERTICAL, command=self.servers_listbox.yview)
+        servers_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        self.servers_listbox.config(yscrollcommand=servers_scrollbar.set)
+        
+        # Refresh servers button
+        refresh_servers_button = ttk.Button(servers_form, text="Refresh Servers", command=self.get_servers)
+        refresh_servers_button.grid(row=3, column=0, sticky=tk.W, pady=10)
+        
+        # Open Web UI button
+        open_web_ui_button = ttk.Button(servers_form, text="Open Web UI", command=self.open_web_ui)
+        open_web_ui_button.grid(row=3, column=1, sticky=tk.E, pady=10)
+        
+        # Preview HTML button
+        preview_html_button = ttk.Button(servers_form, text="Preview HTML Content", command=self.preview_feed_html)
+        preview_html_button.grid(row=3, column=2, sticky=tk.E, pady=10)
+        
+        # Set grid row and column weights
+        servers_form.grid_rowconfigure(2, weight=1)
+        servers_form.grid_columnconfigure(1, weight=1)
     
     def create_profile_tab(self):
         """Create the profile tab"""
@@ -284,7 +349,8 @@ class RSSXTkinterUI:
                     self.feed_text.insert(tk.END, "No posts available.\n")
                 else:
                     for post in posts:
-                        self.format_post(post)
+                        formatted = self.format_post(post)
+                        self.feed_text.insert(tk.END, formatted + "\n" + ("="*40) + "\n\n")
                 
                 self.feed_text.config(state=tk.DISABLED)
             else:
@@ -294,35 +360,16 @@ class RSSXTkinterUI:
         except requests.RequestException as e:
             messagebox.showerror("Connection Error", str(e))
     
-    def format_post(self, post_content):
+    def format_post(self, post):
         """Format a post for display in the feed"""
-        self.feed_text.insert(tk.END, "=" * 50 + "\n")
-        
+        post_content = post.get("content", "")
+        # You can also add author and timestamp if desired:
+        author = post.get("author", "Unknown")
+        timestamp = post.get("timestamp_formatted", "")
+        header = f"Author: {author} | {timestamp}\n"
         lines = post_content.strip().split('\n')
-        post_data = {}
-        
-        for line in lines:
-            if ': ' in line:
-                key, value = line.split(': ', 1)
-                post_data[key] = value
-        
-        if 'Author' in post_data:
-            self.feed_text.insert(tk.END, f"Author: {post_data['Author']}\n")
-        
-        if 'Timestamp' in post_data:
-            try:
-                timestamp = int(post_data['Timestamp'])
-                date_str = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
-                self.feed_text.insert(tk.END, f"Date: {date_str}\n")
-            except (ValueError, TypeError):
-                pass
-        
-        self.feed_text.insert(tk.END, "-" * 50 + "\n")
-        
-        if 'Content' in post_data:
-            self.feed_text.insert(tk.END, f"{post_data['Content']}\n")
-        
-        self.feed_text.insert(tk.END, "=" * 50 + "\n\n")
+        formatted_content = "\n".join(lines)
+        return header + formatted_content
     
     def create_post(self):
         """Create a new post"""
@@ -364,26 +411,237 @@ class RSSXTkinterUI:
         except requests.RequestException as e:
             messagebox.showerror("Connection Error", str(e))
     
-    def get_servers(self):
-        """Get the list of connected servers"""
+    def open_web_ui(self):
+        """Open the web UI in the default browser"""
+        if self.server_url:
+            webbrowser.open(self.server_url)
+        else:
+            messagebox.showerror("Error", "Server URL not configured")
+    
+    def preview_html(self):
+        """Preview HTML content in the default browser"""
+        html_content = """
+        <html>
+        <head><title>Preview</title></head>
+        <body>
+        <h1>HTML Preview</h1>
+        <p>This is a preview of HTML content.</p>
+        </body>
+        </html>
+        """
         try:
-            response = requests.get(f"{self.server_url}/api/list_servers", timeout=5)
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".html") as temp_file:
+                temp_file.write(html_content.encode("utf-8"))
+                temp_file_path = temp_file.name
+            webbrowser.open(f"file://{temp_file_path}")
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to preview HTML: {str(e)}")
+    
+    def preview_feed_html(self):
+        """Preview the feed as HTML in the browser"""
+        if not self.token:
+            messagebox.showwarning("Warning", "Please log in first")
+            self.notebook.select(0)  # Login tab
+            return
+        
+        try:
+            headers = {"Authorization": f"Bearer {self.token}"}
+            response = requests.get(f"{self.server_url}/api/feed", headers=headers, timeout=5)
             
             if response.status_code == 200:
-                servers = response.json().get("connected_servers", [])
+                posts = response.json().get("posts", [])
                 
-                # Clear the server list
-                self.server_listbox.delete(0, tk.END)
+                # Create HTML content
+                html_content = """
+                <!DOCTYPE html>
+                <html>
+                <head>
+                    <title>RSSX Feed Preview</title>
+                    <style>
+                        body {
+                            font-family: Arial, sans-serif;
+                            margin: 0;
+                            padding: 20px;
+                            background-color: #f0f0f0;
+                        }
+                        .container {
+                            max-width: 800px;
+                            margin: 0 auto;
+                            background-color: white;
+                            padding: 20px;
+                            border-radius: 10px;
+                            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+                        }
+                        h1 {
+                            color: #333;
+                            border-bottom: 1px solid #ddd;
+                            padding-bottom: 10px;
+                        }
+                        .post {
+                            margin-bottom: 20px;
+                            padding: 10px;
+                            border: 1px solid #ddd;
+                            border-radius: 5px;
+                        }
+                        .post-header {
+                            background-color: #f5f5f5;
+                            padding: 10px;
+                            margin-bottom: 10px;
+                            border-radius: 3px;
+                        }
+                        .post-content {
+                            white-space: pre-wrap;
+                        }
+                        .post-separator {
+                            border-bottom: 1px solid #ddd;
+                            margin: 20px 0;
+                        }
+                        .comment-section {
+                            margin-top: 15px;
+                            padding-top: 10px;
+                            border-top: 1px dashed #ddd;
+                        }
+                        .comment-button {
+                            margin-top: 10px;
+                            padding: 8px 16px;
+                            background-color: #4CAF50;
+                            color: white;
+                            border: none;
+                            border-radius: 4px;
+                            cursor: pointer;
+                        }
+                        .comment-button:hover {
+                            background-color: #45a049;
+                        }
+                    </style>
+                </head>
+                <body>
+                    <div class="container">
+                        <h1>RSSX Feed Preview</h1>
+                """
                 
-                for server in servers:
-                    self.server_listbox.insert(tk.END, server)
+                if not posts:
+                    html_content += "<p>No posts available.</p>"
+                else:
+                    for post in posts:
+                        author = post.get("author", "Unknown")
+                        post_id = post.get("id", "")
+                        timestamp = post.get("timestamp", 0)
+                        
+                        formatted_time = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
+                        
+                        content = post.get("content", "")
+                        content_html = content.replace("\n", "<br>")
+                        
+                        html_content += f"""
+                        <div class="post" data-post-id="{post_id}">
+                            <div class="post-header">
+                                <strong>Author:</strong> {author} | <strong>Time:</strong> {formatted_time}
+                            </div>
+                            <div class="post-content">
+                                {content_html}
+                            </div>
+                            <div class="comment-section">
+                                <button class="comment-button" onclick="alert('Open in web UI to comment on this post')">Add Comment</button>
+                            </div>
+                        </div>
+                        <div class="post-separator"></div>
+                        """
+                
+                html_content += """
+                    </div>
+                    <script>
+                        document.addEventListener('DOMContentLoaded', function() {
+                            // Add client-side interaction if needed
+                        });
+                    </script>
+                </body>
+                </html>
+                """
+                
+                # Write to a temporary file and open in browser
+                try:
+                    with tempfile.NamedTemporaryFile(delete=False, suffix=".html") as temp_file:
+                        temp_file.write(html_content.encode("utf-8"))
+                        temp_file_path = temp_file.name
+                    webbrowser.open(f"file://{temp_file_path}")
+                except Exception as e:
+                    messagebox.showerror("Error", f"Failed to preview HTML: {str(e)}")
             else:
-                error_msg = response.json().get("error", "Failed to get servers")
-                messagebox.showerror("Server Error", error_msg)
+                error_msg = response.json().get("error", "Failed to get feed")
+                messagebox.showerror("Feed Error", error_msg)
         
         except requests.RequestException as e:
             messagebox.showerror("Connection Error", str(e))
     
+    def get_servers(self):
+        """Get the list of connected servers"""
+        if not self.token:
+            messagebox.showwarning("Warning", "Please log in first")
+            self.notebook.select(0)  # Login tab
+            return
+        
+        try:
+            headers = {"Authorization": f"Bearer {self.token}"}
+            response = requests.get(f"{self.server_url}/api/list_servers", headers=headers, timeout=5)
+            
+            if response.status_code == 200:
+                servers = response.json().get("connected_servers", [])
+                
+                # Clear the servers listbox
+                self.servers_listbox.delete(0, tk.END)
+                
+                if not servers:
+                    self.servers_listbox.insert(tk.END, "No connected servers.")
+                else:
+                    for server in servers:
+                        self.servers_listbox.insert(tk.END, server)
+                    
+                    # Save to instance variable for later use
+                    self.connected_servers = servers
+            else:
+                error_msg = response.json().get("error", "Failed to get servers")
+                messagebox.showerror("Servers Error", error_msg)
+        
+        except requests.RequestException as e:
+            messagebox.showerror("Connection Error", str(e))
+    
+    def add_server(self):
+        """Add a new server to the connected servers list"""
+        if not self.token:
+            messagebox.showwarning("Warning", "Please log in first")
+            self.notebook.select(0)  # Login tab
+            return
+        
+        server_url = self.server_url_var.get()
+        
+        if not server_url:
+            messagebox.showerror("Error", "Server URL cannot be empty")
+            return
+        
+        try:
+            headers = {"Authorization": f"Bearer {self.token}"}
+            response = requests.post(
+                f"{self.server_url}/api/add_server",
+                json={"server_url": server_url},
+                headers=headers,
+                timeout=5
+            )
+            
+            if response.status_code == 200 or response.status_code == 201:
+                messagebox.showinfo("Success", f"Server {server_url} added successfully")
+                
+                # Clear the server URL entry
+                self.server_url_var.set("")
+                
+                # Refresh the servers list
+                self.get_servers()
+            else:
+                error_msg = response.json().get("error", "Failed to add server")
+                messagebox.showerror("Server Error", error_msg)
+        
+        except requests.RequestException as e:
+            messagebox.showerror("Connection Error", str(e))
     
     def logout(self):
         """Log out the current user"""
@@ -440,7 +698,7 @@ class RSSXTkinterUI:
                         self.get_feed()
                         
                         # Get servers
-                        self.get_servers()
+                        
             except Exception as e:
                 print(f"Error loading token: {str(e)}")
     
