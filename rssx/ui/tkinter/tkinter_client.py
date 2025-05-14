@@ -3,13 +3,9 @@ from tkinter import ttk, messagebox, scrolledtext
 import requests
 import json
 import os
-import threading
-import time
-from datetime import datetime
 import tkinter.simpledialog as simpledialog
-import webbrowser  # Add webbrowser for opening web UI
-import subprocess  # For HTML preview functionality
-import tempfile  # For creating temporary HTML files
+from tkinterweb import HtmlFrame
+from datetime import datetime
 
 _temp_root = tk.Tk()
 _temp_root.withdraw()
@@ -18,746 +14,196 @@ _temp_root.destroy()
 
 if default_server_url:
     os.environ["DEFAULT_SERVER"] = default_server_url
+
 class RSSXTkinterUI:
     def __init__(self, config):
-        """Initialize Tkinter UI with configuration"""
         self.config = config
-        self.server_url = config.get("DEFAULT_SERVER")
+        self.server_url = config.get("DEFAULT_SERVER") or os.environ.get("DEFAULT_SERVER") or "http://localhost:5000"
         self.token = None
         self.username = None
-        self.current_post_id = None  # Track the currently selected post
-        self.connected_servers = []  # List of connected servers
-        
-        # Create the main window
+
         self.root = tk.Tk()
         self.root.title("RSSX Client")
-        self.root.geometry("800x600")
-        self.root.minsize(600, 400)
-        
-        # Apply dark sleek style
-        self.style = ttk.Style(self.root)
-        self.style.theme_use('clam')
-        self.root.config(bg='#2e2e2e')
-        self.style.configure('TFrame', background='#2e2e2e')
-        self.style.configure('TLabel', background='#2e2e2e', foreground='#ffffff', font=('Arial', 12))
-        self.style.configure('TButton', font=('Arial', 12), padding=5)
-        self.style.configure('TNotebook', background='#2e2e2e')
-        self.style.configure('TNotebook.Tab', font=('Arial', 12), padding=[10, 5])
-        
-        # Set up the main container
-        self.main_container = ttk.Frame(self.root)
-        self.main_container.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
-        
-        # Create a notebook (tabbed interface)
-        self.notebook = ttk.Notebook(self.main_container)
-        self.notebook.pack(fill=tk.BOTH, expand=True)
-        
-        # Create the tabs
-        self.create_login_tab()
-        self.create_register_tab()
-        self.create_feed_tab()
-        self.create_post_tab()
-        self.create_servers_tab()  # Enhanced servers tab
-        self.create_profile_tab()
-        
-        # Status bar
+        self.root.geometry("1024x768")
+        self.root.minsize(800, 600)
+
+        self.control_panel = ttk.Frame(self.root)
+        self.control_panel.pack(fill=tk.X, padx=5, pady=5)
+
+        self.refresh_button = ttk.Button(self.control_panel, text="Refresh", command=self.refresh_feed)
+        self.refresh_button.pack(side=tk.LEFT, padx=5)
+
+        self.login_button = ttk.Button(self.control_panel, text="Login", command=self.show_login_dialog)
+        self.login_button.pack(side=tk.LEFT, padx=5)
+
+        self.create_post_button = ttk.Button(self.control_panel, text="Create Post", command=self.show_create_post_dialog)
+        self.create_post_button.pack(side=tk.LEFT, padx=5)
+
         self.status_var = tk.StringVar()
         self.status_var.set("Not connected")
-        self.status_bar = ttk.Label(self.root, textvariable=self.status_var, relief=tk.SUNKEN, anchor=tk.W)
-        self.status_bar.pack(side=tk.BOTTOM, fill=tk.X)
-        
-        # Try to load saved token
+        self.status_label = ttk.Label(self.control_panel, textvariable=self.status_var)
+        self.status_label.pack(side=tk.RIGHT, padx=20)
+
+        self.feed_text = scrolledtext.ScrolledText(self.root, wrap=tk.WORD, state=tk.DISABLED)
+        self.feed_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
         self.load_token()
-        
-        # Auto-update feed
-        self.start_feed_update_thread()
-    
-    def create_login_tab(self):
-        """Create the login tab"""
-        login_frame = ttk.Frame(self.notebook)
-        self.notebook.add(login_frame, text="Login")
-        
-        # Login form
-        login_form = ttk.Frame(login_frame, padding=20)
-        login_form.pack(fill=tk.BOTH, expand=True)
-        
-        # Username
-        ttk.Label(login_form, text="Username:").grid(row=0, column=0, sticky=tk.W, pady=5)
-        self.username_var = tk.StringVar()
-        username_entry = ttk.Entry(login_form, textvariable=self.username_var, width=30)
-        username_entry.grid(row=0, column=1, sticky=tk.W, pady=5)
-        
-        # Password
-        ttk.Label(login_form, text="Password:").grid(row=1, column=0, sticky=tk.W, pady=5)
-        self.password_var = tk.StringVar()
-        password_entry = ttk.Entry(login_form, textvariable=self.password_var, show="*", width=30)
-        password_entry.grid(row=1, column=1, sticky=tk.W, pady=5)
-        
-        # Login button
-        login_button = ttk.Button(login_form, text="Login", command=self.login)
-        login_button.grid(row=2, column=1, sticky=tk.E, pady=10)
-    
-    def create_register_tab(self):
-        """Create the register tab"""
-        register_frame = ttk.Frame(self.notebook)
-        self.notebook.add(register_frame, text="Register")
-        
-        # Register form
-        register_form = ttk.Frame(register_frame, padding=20)
-        register_form.pack(fill=tk.BOTH, expand=True)
-        
-        # Username
-        ttk.Label(register_form, text="Username:").grid(row=0, column=0, sticky=tk.W, pady=5)
-        self.reg_username_var = tk.StringVar()
-        reg_username_entry = ttk.Entry(register_form, textvariable=self.reg_username_var, width=30)
-        reg_username_entry.grid(row=0, column=1, sticky=tk.W, pady=5)
-        
-        # Password
-        ttk.Label(register_form, text="Password:").grid(row=1, column=0, sticky=tk.W, pady=5)
-        self.reg_password_var = tk.StringVar()
-        reg_password_entry = ttk.Entry(register_form, textvariable=self.reg_password_var, show="*", width=30)
-        reg_password_entry.grid(row=1, column=1, sticky=tk.W, pady=5)
-        
-        # Confirm Password
-        ttk.Label(register_form, text="Confirm Password:").grid(row=2, column=0, sticky=tk.W, pady=5)
-        self.reg_confirm_password_var = tk.StringVar()
-        reg_confirm_password_entry = ttk.Entry(register_form, textvariable=self.reg_confirm_password_var, show="*", width=30)
-        reg_confirm_password_entry.grid(row=2, column=1, sticky=tk.W, pady=5)
-        
-        # Register button
-        register_button = ttk.Button(register_form, text="Register", command=self.register)
-        register_button.grid(row=3, column=1, sticky=tk.E, pady=10)
-    
-    def create_feed_tab(self):
-        """Create the feed tab"""
-        feed_frame = ttk.Frame(self.notebook)
-        self.notebook.add(feed_frame, text="Feed")
-        
-        # Controls
-        controls_frame = ttk.Frame(feed_frame, padding=5)
-        controls_frame.pack(fill=tk.X)
-        
-        refresh_button = ttk.Button(controls_frame, text="Refresh", command=self.get_feed)
-        refresh_button.pack(side=tk.RIGHT)
-        
-        # Feed content
-        feed_content_frame = ttk.Frame(feed_frame, padding=5)
-        feed_content_frame.pack(fill=tk.BOTH, expand=True)
-        
-        self.feed_text = scrolledtext.ScrolledText(feed_content_frame, wrap=tk.WORD)
-        self.feed_text.pack(fill=tk.BOTH, expand=True)
-        self.feed_text.config(state=tk.DISABLED, bg="#1e1e1e", fg="#ffffff", insertbackground="white")
-    
-    def create_post_tab(self):
-        """Create the post tab"""
-        post_frame = ttk.Frame(self.notebook)
-        self.notebook.add(post_frame, text="Create Post")
-        
-        # Post form
-        post_form = ttk.Frame(post_frame, padding=20)
-        post_form.pack(fill=tk.BOTH, expand=True)
-        
-        # Content
-        ttk.Label(post_form, text="Post Content:").pack(anchor=tk.W, pady=5)
-        self.post_content_var = tk.StringVar()
-        self.post_content_text = scrolledtext.ScrolledText(post_form, wrap=tk.WORD, height=10)
-        self.post_content_text.pack(fill=tk.BOTH, expand=True, pady=5)
-        self.post_content_text.config(bg="#1e1e1e", fg="#ffffff", insertbackground="white")
-        
-        # Post button
-        post_button = ttk.Button(post_form, text="Post", command=self.create_post)
-        post_button.pack(side=tk.RIGHT, pady=10)
-    
-    def create_servers_tab(self):
-        """Create the servers tab"""
-        servers_frame = ttk.Frame(self.notebook)
-        self.notebook.add(servers_frame, text="Servers")
-        
-        # Servers form
-        servers_form = ttk.Frame(servers_frame, padding=20)
-        servers_form.pack(fill=tk.BOTH, expand=True)
-        
-        # Server URL input
-        ttk.Label(servers_form, text="Server URL:").grid(row=0, column=0, sticky=tk.W, pady=5)
-        self.server_url_var = tk.StringVar()
-        server_url_entry = ttk.Entry(servers_form, textvariable=self.server_url_var, width=40)
-        server_url_entry.grid(row=0, column=1, sticky=tk.W, pady=5)
-        
-        # Add server button
-        add_server_button = ttk.Button(servers_form, text="Add Server", command=self.add_server)
-        add_server_button.grid(row=0, column=2, sticky=tk.W, padx=5, pady=5)
-        
-        # Connected servers list
-        ttk.Label(servers_form, text="Connected Servers:").grid(row=1, column=0, sticky=tk.W, pady=5, columnspan=3)
-        
-        # Create a listbox with scrollbar for servers
-        servers_frame = ttk.Frame(servers_form)
-        servers_frame.grid(row=2, column=0, columnspan=3, sticky=tk.NSEW, pady=5)
-        
-        self.servers_listbox = tk.Listbox(servers_frame, height=10, width=50, bg="#1e1e1e", fg="#ffffff")
-        self.servers_listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        
-        servers_scrollbar = ttk.Scrollbar(servers_frame, orient=tk.VERTICAL, command=self.servers_listbox.yview)
-        servers_scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-        self.servers_listbox.config(yscrollcommand=servers_scrollbar.set)
-        
-        # Refresh servers button
-        refresh_servers_button = ttk.Button(servers_form, text="Refresh Servers", command=self.get_servers)
-        refresh_servers_button.grid(row=3, column=0, sticky=tk.W, pady=10)
-        
-        # Open Web UI button
-        open_web_ui_button = ttk.Button(servers_form, text="Open Web UI", command=self.open_web_ui)
-        open_web_ui_button.grid(row=3, column=1, sticky=tk.E, pady=10)
-        
-        # Preview HTML button
-        preview_html_button = ttk.Button(servers_form, text="Preview HTML Content", command=self.preview_feed_html)
-        preview_html_button.grid(row=3, column=2, sticky=tk.E, pady=10)
-        
-        # Set grid row and column weights
-        servers_form.grid_rowconfigure(2, weight=1)
-        servers_form.grid_columnconfigure(1, weight=1)
-    
-    def create_profile_tab(self):
-        """Create the profile tab"""
-        profile_frame = ttk.Frame(self.notebook)
-        self.notebook.add(profile_frame, text="Profile")
-        
-        # Profile content
-        profile_content = ttk.Frame(profile_frame, padding=20)
-        profile_content.pack(fill=tk.BOTH, expand=True)
-        
-        # Username
-        ttk.Label(profile_content, text="Username:").grid(row=0, column=0, sticky=tk.W, pady=5)
-        self.profile_username_var = tk.StringVar()
-        profile_username_label = ttk.Label(profile_content, textvariable=self.profile_username_var)
-        profile_username_label.grid(row=0, column=1, sticky=tk.W, pady=5)
-        
-        # Session expiry
-        ttk.Label(profile_content, text="Session Expires:").grid(row=1, column=0, sticky=tk.W, pady=5)
-        self.session_expiry_var = tk.StringVar()
-        session_expiry_label = ttk.Label(profile_content, textvariable=self.session_expiry_var)
-        session_expiry_label.grid(row=1, column=1, sticky=tk.W, pady=5)
-        
-        # Logout button
-        logout_button = ttk.Button(profile_content, text="Logout", command=self.logout)
-        logout_button.grid(row=2, column=1, sticky=tk.E, pady=10)
-    
-    def login(self):
-        """Login to the server"""
-        username = self.username_var.get()
-        password = self.password_var.get()
-        
-        if not username or not password:
-            messagebox.showerror("Error", "Please enter both username and password")
-            return
-        
-        try:
-            response = requests.post(
-                f"{self.server_url}/api/login",
-                json={"username": username, "password": password},
-                timeout=5
-            )
-            
-            if response.status_code:
-                token_data = response.json()
-                self.token = token_data.get("token")
-                self.username = username
-                
-                # Save token to file
-                self.save_token()
-                
-                # Update UI
-                self.profile_username_var.set(username)
-                self.update_token_info()
-                self.status_var.set(f"Logged in as {username}")
-                
-                # Switch to feed tab
-                self.notebook.select(2)  # Feed tab
-                
-                # Get feed data
-                self.get_feed()
-                
-                messagebox.showinfo("Success", "Login successful")
-            else:
-                error_msg = response.json().get("error", "Invalid credentials")
-                messagebox.showerror("Login Failed", error_msg)
-        
-        except requests.RequestException as e:
-            messagebox.showerror("Connection Error", str(e))
-    
-    def register(self):
-        """Register a new user"""
-        username = self.reg_username_var.get()
-        password = self.reg_password_var.get()
-        confirm_password = self.reg_confirm_password_var.get()
-        
-        if not username or not password or not confirm_password:
-            messagebox.showerror("Error", "Please fill out all fields")
-            return
-        
-        if password != confirm_password:
-            messagebox.showerror("Error", "Passwords do not match")
-            return
-        
-        if len(password) < 6:
-            messagebox.showerror("Error", "Password must be at least 6 characters long")
-            return
-        
-        try:
-            response = requests.post(
-                f"{self.server_url}/api/register",
-                json={"username": username, "password": password},
-                timeout=5
-            )
-            
-            if response.status_code == 200 or response.status_code == 201:
-                messagebox.showinfo("Success", "Registration successful! You can now log in.")
-                
-                # Clear registration fields
-                self.reg_username_var.set("")
-                self.reg_password_var.set("")
-                self.reg_confirm_password_var.set("")
-                
-                # Switch to login tab
-                self.notebook.select(0)  # Login tab
-            else:
-                error_msg = response.json().get("error", "Registration failed")
-                messagebox.showerror("Registration Failed", error_msg)
-        
-        except requests.RequestException as e:
-            messagebox.showerror("Connection Error", str(e))
-    
-    def get_feed(self):
-        """Get the post feed"""
+        self.refresh_feed()
+
+    def show_login_dialog(self):
+        login_dialog = tk.Toplevel(self.root)
+        login_dialog.title("Login")
+        login_dialog.geometry("300x150")
+        login_dialog.transient(self.root)
+        login_dialog.grab_set()
+
+        ttk.Label(login_dialog, text="Username:").grid(row=0, column=0, padx=10, pady=10, sticky=tk.W)
+        username_var = tk.StringVar()
+        username_entry = ttk.Entry(login_dialog, textvariable=username_var, width=20)
+        username_entry.grid(row=0, column=1, padx=10, pady=10)
+
+        ttk.Label(login_dialog, text="Password:").grid(row=1, column=0, padx=10, pady=10, sticky=tk.W)
+        password_var = tk.StringVar()
+        password_entry = ttk.Entry(login_dialog, textvariable=password_var, show="*", width=20)
+        password_entry.grid(row=1, column=1, padx=10, pady=10)
+
+        def do_login():
+            username = username_var.get()
+            password = password_var.get()
+            if not username or not password:
+                messagebox.showerror("Error", "Please enter both username and password")
+                return
+
+            try:
+                response = requests.post(
+                    f"{self.server_url}/api/login",
+                    json={"username": username, "password": password},
+                    timeout=5
+                )
+                if response.status_code == 200:
+                    token_data = response.json()
+                    self.token = token_data.get("token")
+                    self.username = username
+                    self.save_token()
+                    self.status_var.set(f"Logged in as {username}")
+                    self.refresh_feed()
+                    messagebox.showinfo("Login", "Login successful!")
+                    login_dialog.destroy()
+                else:
+                    error = response.json().get("error", "Invalid credentials")
+                    messagebox.showerror("Login Failed", error)
+            except Exception as e:
+                messagebox.showerror("Error", f"Login failed: {e}")
+
+        button_frame = ttk.Frame(login_dialog)
+        button_frame.grid(row=2, column=0, columnspan=2, pady=10)
+        ttk.Button(button_frame, text="Cancel", command=login_dialog.destroy).pack(side=tk.LEFT, padx=10)
+        ttk.Button(button_frame, text="Login", command=do_login).pack(side=tk.RIGHT, padx=10)
+
+    def show_create_post_dialog(self):
         if not self.token:
             messagebox.showwarning("Warning", "Please log in first")
-            self.notebook.select(0)  # Login tab
             return
-        
+
+        post_dialog = tk.Toplevel(self.root)
+        post_dialog.title("Create Post")
+        post_dialog.geometry("400x300")
+        post_dialog.transient(self.root)
+        post_dialog.grab_set()
+
+        ttk.Label(post_dialog, text="Post Content:").pack(anchor="w", padx=10, pady=5)
+        content_text = scrolledtext.ScrolledText(post_dialog, wrap=tk.WORD, height=10)
+        content_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+        def do_post():
+            content = content_text.get("1.0", tk.END).strip()
+            if not content:
+                messagebox.showerror("Error", "Post content cannot be empty")
+                return
+
+            try:
+                headers = {"Authorization": f"Bearer {self.token}"}
+                response = requests.post(
+                    f"{self.server_url}/api/post",
+                    json={"content": content},
+                    headers=headers,
+                    timeout=5
+                )
+                if response.status_code == 201:
+                    messagebox.showinfo("Success", "Post created successfully")
+                    self.refresh_feed()
+                    post_dialog.destroy()
+                else:
+                    error = response.json().get("error", "Failed to create post")
+                    messagebox.showerror("Error", error)
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to create post: {e}")
+
+        button_frame = ttk.Frame(post_dialog)
+        button_frame.pack(fill=tk.X, padx=10, pady=10)
+        ttk.Button(button_frame, text="Cancel", command=post_dialog.destroy).pack(side=tk.LEFT)
+        ttk.Button(button_frame, text="Post", command=do_post).pack(side=tk.RIGHT)
+
+    def refresh_feed(self):
+        if not self.token:
+            self.feed_text.config(state=tk.NORMAL)
+            self.feed_text.delete("1.0", tk.END)
+            self.feed_text.insert(tk.END, "Please log in to view the feed.")
+            self.feed_text.config(state=tk.DISABLED)
+            return
+
         try:
             headers = {"Authorization": f"Bearer {self.token}"}
-            response = requests.get(f"{self.server_url}/api/feed", headers=headers, timeout=5)
-            
+            response = requests.get(f"{self.server_url}/api/feed", headers=headers, timeout=10)
             if response.status_code == 200:
                 posts = response.json().get("posts", [])
-                
-                # Clear the feed text
                 self.feed_text.config(state=tk.NORMAL)
-                self.feed_text.delete(1.0, tk.END)
-                
-                if not posts:
-                    self.feed_text.insert(tk.END, "No posts available.\n")
-                else:
-                    for post in posts:
-                        formatted = self.format_post(post)
-                        self.feed_text.insert(tk.END, formatted + "\n" + ("="*40) + "\n\n")
-                
+                self.feed_text.delete("1.0", tk.END)
+                for post in posts:
+                    formatted = self.format_post(post)
+                    self.feed_text.insert(tk.END, formatted + "\n" + ("="*40) + "\n\n")
                 self.feed_text.config(state=tk.DISABLED)
             else:
-                error_msg = response.json().get("error", "Failed to get feed")
-                messagebox.showerror("Feed Error", error_msg)
-        
-        except requests.RequestException as e:
-            messagebox.showerror("Connection Error", str(e))
-    
-    def format_post(self, post):
-        """Format a post for display in the feed"""
-        post_content = post.get("content", "")
-        # You can also add author and timestamp if desired:
-        author = post.get("author", "Unknown")
-        timestamp = post.get("timestamp_formatted", "")
-        header = f"Author: {author} | {timestamp}\n"
-        lines = post_content.strip().split('\n')
-        formatted_content = "\n".join(lines)
-        return header + formatted_content
-    
-    def create_post(self):
-        """Create a new post"""
-        if not self.token:
-            messagebox.showwarning("Warning", "Please log in first")
-            self.notebook.select(0)  # Login tab
-            return
-        
-        content = self.post_content_text.get(1.0, tk.END).strip()
-        
-        if not content:
-            messagebox.showerror("Error", "Post content cannot be empty")
-            return
-        
-        try:
-            headers = {"Authorization": f"Bearer {self.token}"}
-            response = requests.post(
-                f"{self.server_url}/api/post",
-                json={"content": content},
-                headers=headers,
-                timeout=5
-            )
-            
-            if response.status_code == 200 or response.status_code == 201:
-                messagebox.showinfo("Success", "Post created successfully")
-                
-                # Clear the post content
-                self.post_content_text.delete(1.0, tk.END)
-                
-                # Refresh the feed
-                self.get_feed()
-                
-                # Switch to feed tab
-                self.notebook.select(2)  # Feed tab
-            else:
-                error_msg = response.json().get("error", "Failed to create post")
-                messagebox.showerror("Post Error", error_msg)
-        
-        except requests.RequestException as e:
-            messagebox.showerror("Connection Error", str(e))
-    
-    def open_web_ui(self):
-        """Open the web UI in the default browser"""
-        if self.server_url:
-            webbrowser.open(self.server_url)
-        else:
-            messagebox.showerror("Error", "Server URL not configured")
-    
-    def preview_html(self):
-        """Preview HTML content in the default browser"""
-        html_content = """
-        <html>
-        <head><title>Preview</title></head>
-        <body>
-        <h1>HTML Preview</h1>
-        <p>This is a preview of HTML content.</p>
-        </body>
-        </html>
-        """
-        try:
-            with tempfile.NamedTemporaryFile(delete=False, suffix=".html") as temp_file:
-                temp_file.write(html_content.encode("utf-8"))
-                temp_file_path = temp_file.name
-            webbrowser.open(f"file://{temp_file_path}")
+                error = response.json().get("error", "Failed to fetch feed")
+                messagebox.showerror("Error", error)
         except Exception as e:
-            messagebox.showerror("Error", f"Failed to preview HTML: {str(e)}")
-    
-    def preview_feed_html(self):
-        """Preview the feed as HTML in the browser"""
-        if not self.token:
-            messagebox.showwarning("Warning", "Please log in first")
-            self.notebook.select(0)  # Login tab
-            return
-        
-        try:
-            headers = {"Authorization": f"Bearer {self.token}"}
-            response = requests.get(f"{self.server_url}/api/feed", headers=headers, timeout=5)
-            
-            if response.status_code == 200:
-                posts = response.json().get("posts", [])
-                
-                # Create HTML content
-                html_content = """
-                <!DOCTYPE html>
-                <html>
-                <head>
-                    <title>RSSX Feed Preview</title>
-                    <style>
-                        body {
-                            font-family: Arial, sans-serif;
-                            margin: 0;
-                            padding: 20px;
-                            background-color: #f0f0f0;
-                        }
-                        .container {
-                            max-width: 800px;
-                            margin: 0 auto;
-                            background-color: white;
-                            padding: 20px;
-                            border-radius: 10px;
-                            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
-                        }
-                        h1 {
-                            color: #333;
-                            border-bottom: 1px solid #ddd;
-                            padding-bottom: 10px;
-                        }
-                        .post {
-                            margin-bottom: 20px;
-                            padding: 10px;
-                            border: 1px solid #ddd;
-                            border-radius: 5px;
-                        }
-                        .post-header {
-                            background-color: #f5f5f5;
-                            padding: 10px;
-                            margin-bottom: 10px;
-                            border-radius: 3px;
-                        }
-                        .post-content {
-                            white-space: pre-wrap;
-                        }
-                        .post-separator {
-                            border-bottom: 1px solid #ddd;
-                            margin: 20px 0;
-                        }
-                        .comment-section {
-                            margin-top: 15px;
-                            padding-top: 10px;
-                            border-top: 1px dashed #ddd;
-                        }
-                        .comment-button {
-                            margin-top: 10px;
-                            padding: 8px 16px;
-                            background-color: #4CAF50;
-                            color: white;
-                            border: none;
-                            border-radius: 4px;
-                            cursor: pointer;
-                        }
-                        .comment-button:hover {
-                            background-color: #45a049;
-                        }
-                    </style>
-                </head>
-                <body>
-                    <div class="container">
-                        <h1>RSSX Feed Preview</h1>
-                """
-                
-                if not posts:
-                    html_content += "<p>No posts available.</p>"
-                else:
-                    for post in posts:
-                        author = post.get("author", "Unknown")
-                        post_id = post.get("id", "")
-                        timestamp = post.get("timestamp", 0)
-                        
-                        formatted_time = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
-                        
-                        content = post.get("content", "")
-                        content_html = content.replace("\n", "<br>")
-                        
-                        html_content += f"""
-                        <div class="post" data-post-id="{post_id}">
-                            <div class="post-header">
-                                <strong>Author:</strong> {author} | <strong>Time:</strong> {formatted_time}
-                            </div>
-                            <div class="post-content">
-                                {content_html}
-                            </div>
-                            <div class="comment-section">
-                                <button class="comment-button" onclick="alert('Open in web UI to comment on this post')">Add Comment</button>
-                            </div>
-                        </div>
-                        <div class="post-separator"></div>
-                        """
-                
-                html_content += """
-                    </div>
-                    <script>
-                        document.addEventListener('DOMContentLoaded', function() {
-                            // Add client-side interaction if needed
-                        });
-                    </script>
-                </body>
-                </html>
-                """
-                
-                # Write to a temporary file and open in browser
-                try:
-                    with tempfile.NamedTemporaryFile(delete=False, suffix=".html") as temp_file:
-                        temp_file.write(html_content.encode("utf-8"))
-                        temp_file_path = temp_file.name
-                    webbrowser.open(f"file://{temp_file_path}")
-                except Exception as e:
-                    messagebox.showerror("Error", f"Failed to preview HTML: {str(e)}")
-            else:
-                error_msg = response.json().get("error", "Failed to get feed")
-                messagebox.showerror("Feed Error", error_msg)
-        
-        except requests.RequestException as e:
-            messagebox.showerror("Connection Error", str(e))
-    
-    def get_servers(self):
-        """Get the list of connected servers"""
-        if not self.token:
-            messagebox.showwarning("Warning", "Please log in first")
-            self.notebook.select(0)  # Login tab
-            return
-        
-        try:
-            headers = {"Authorization": f"Bearer {self.token}"}
-            response = requests.get(f"{self.server_url}/api/list_servers", headers=headers, timeout=5)
-            
-            if response.status_code == 200:
-                servers = response.json().get("connected_servers", [])
-                
-                # Clear the servers listbox
-                self.servers_listbox.delete(0, tk.END)
-                
-                if not servers:
-                    self.servers_listbox.insert(tk.END, "No connected servers.")
-                else:
-                    for server in servers:
-                        self.servers_listbox.insert(tk.END, server)
-                    
-                    # Save to instance variable for later use
-                    self.connected_servers = servers
-            else:
-                error_msg = response.json().get("error", "Failed to get servers")
-                messagebox.showerror("Servers Error", error_msg)
-        
-        except requests.RequestException as e:
-            messagebox.showerror("Connection Error", str(e))
-    
-    def add_server(self):
-        """Add a new server to the connected servers list"""
-        if not self.token:
-            messagebox.showwarning("Warning", "Please log in first")
-            self.notebook.select(0)  # Login tab
-            return
-        
-        server_url = self.server_url_var.get()
-        
-        if not server_url:
-            messagebox.showerror("Error", "Server URL cannot be empty")
-            return
-        
-        try:
-            headers = {"Authorization": f"Bearer {self.token}"}
-            response = requests.post(
-                f"{self.server_url}/api/add_server",
-                json={"server_url": server_url},
-                headers=headers,
-                timeout=5
-            )
-            
-            if response.status_code == 200 or response.status_code == 201:
-                messagebox.showinfo("Success", f"Server {server_url} added successfully")
-                
-                # Clear the server URL entry
-                self.server_url_var.set("")
-                
-                # Refresh the servers list
-                self.get_servers()
-            else:
-                error_msg = response.json().get("error", "Failed to add server")
-                messagebox.showerror("Server Error", error_msg)
-        
-        except requests.RequestException as e:
-            messagebox.showerror("Connection Error", str(e))
-    
-    def logout(self):
-        """Log out the current user"""
-        self.token = None
-        self.username = None
-        
-        # Clear token file
-        if os.path.exists("token.txt"):
-            try:
-                os.remove("token.txt")
-            except Exception:
-                pass
-        
-        # Update UI
-        self.profile_username_var.set("")
-        self.session_expiry_var.set("")
-        self.status_var.set("Not connected")
-        
-        # Clear the feed
-        self.feed_text.config(state=tk.NORMAL)
-        self.feed_text.delete(1.0, tk.END)
-        self.feed_text.config(state=tk.DISABLED)
-        
-        # Switch to login tab
-        self.notebook.select(0)  # Login tab
-        
-        messagebox.showinfo("Success", "Logged out successfully")
-    
+            messagebox.showerror("Error", f"Failed to fetch feed: {e}")
+
+    def format_post(self, post):
+        author = post.get("author", "Unknown")
+        content = post.get("content", "")
+        timestamp = post.get("timestamp", 0)
+        date_str = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
+        return f"Author: {author}\nDate: {date_str}\nContent:\n{content}"
+
     def save_token(self):
-        """Save the token to a file"""
         if self.token and self.username:
             try:
                 with open("token.txt", "w") as file:
                     json.dump({"token": self.token, "username": self.username}, file)
             except Exception as e:
-                print(f"Error saving token: {str(e)}")
-    
+                print(f"Error saving token: {e}")
+
     def load_token(self):
-        """Load the token from a file"""
         if os.path.exists("token.txt"):
             try:
                 with open("token.txt", "r") as file:
                     data = json.load(file)
                     self.token = data.get("token")
                     self.username = data.get("username")
-                    
                     if self.token and self.username:
-                        # Update UI
-                        self.profile_username_var.set(self.username)
-                        self.update_token_info()
                         self.status_var.set(f"Logged in as {self.username}")
-                        
-                        # Get feed data
-                        self.get_feed()
-                        
-                        # Get servers
-                        
             except Exception as e:
-                print(f"Error loading token: {str(e)}")
-    
-    def update_token_info(self):
-        """Update token information in the UI"""
-        if self.token:
-            try:
-                # Decode the token to get expiration time
-                # This assumes a JWT token format
-                token_parts = self.token.split('.')
-                if len(token_parts) == 3:
-                    # Decode the payload (middle part)
-                    import base64
-                    payload = token_parts[1]
-                    # Add padding if needed
-                    padding = 4 - (len(payload) % 4)
-                    if padding < 4:
-                        payload += '=' * padding
-                    
-                    decoded = base64.b64decode(payload)
-                    payload_data = json.loads(decoded)
-                    
-                    if 'exp' in payload_data:
-                        exp_time = datetime.fromtimestamp(payload_data['exp'])
-                        self.session_expiry_var.set(exp_time.strftime('%Y-%m-%d %H:%M:%S'))
-                    else:
-                        self.session_expiry_var.set("Unknown")
-                else:
-                    self.session_expiry_var.set("Unknown format")
-            except Exception as e:
-                print(f"Error updating token info: {str(e)}")
-                self.session_expiry_var.set("Error parsing token")
-    
-    def start_feed_update_thread(self):
-        """Start a thread to update the feed periodically"""
-        def update_feed_thread():
-            while True:
-                if self.token:
-                    # Only update if we're on the feed tab
-                    if self.notebook.index(self.notebook.select()) == 2:  # Feed tab
-                        self.get_feed()
-                # Sleep for 30 seconds
-                time.sleep(30)
-        
-        # Start the thread
-        thread = threading.Thread(target=update_feed_thread, daemon=True)
-        thread.start()
-    
+                print(f"Error loading token: {e}")
+
     def run(self):
-        """Run the Tkinter UI"""
         self.root.mainloop()
 
 def launch_tkinter_ui(config):
-    """Launch the Tkinter UI"""
     ui = RSSXTkinterUI(config)
     ui.run()
-    
+
 if __name__ == "__main__":
-    # If run directly, create a basic config and start the UI
     import sys
     sys.path.append('/home/viktor/Documents/RSSX/rssx')
     from utils.config import Config
