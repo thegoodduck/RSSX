@@ -144,6 +144,50 @@ class RSSXTkinterUI:
         ttk.Button(button_frame, text="Cancel", command=post_dialog.destroy).pack(side=tk.LEFT)
         ttk.Button(button_frame, text="Post", command=do_post).pack(side=tk.RIGHT)
 
+    def show_comment_dialog(self, post_id):
+        if not self.token:
+            messagebox.showwarning("Warning", "Please log in first")
+            return
+
+        comment_dialog = tk.Toplevel(self.root)
+        comment_dialog.title("Add Comment")
+        comment_dialog.geometry("400x300")
+        comment_dialog.transient(self.root)
+        comment_dialog.grab_set()
+
+        ttk.Label(comment_dialog, text="Comment:").pack(anchor="w", padx=10, pady=5)
+        comment_text = scrolledtext.ScrolledText(comment_dialog, wrap=tk.WORD, height=10)
+        comment_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+        def do_comment():
+            content = comment_text.get("1.0", tk.END).strip()
+            if not content:
+                messagebox.showerror("Error", "Comment cannot be empty")
+                return
+
+            try:
+                headers = {"Authorization": f"Bearer {self.token}"}
+                response = requests.post(
+                    f"{self.server_url}/api/comment",
+                    json={"post_id": post_id, "content": content},
+                    headers=headers,
+                    timeout=5
+                )
+                if response.status_code == 201:
+                    messagebox.showinfo("Success", "Comment added successfully")
+                    self.refresh_feed()
+                    comment_dialog.destroy()
+                else:
+                    error = response.json().get("error", "Failed to add comment")
+                    messagebox.showerror("Error", error)
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to add comment: {e}")
+
+        button_frame = ttk.Frame(comment_dialog)
+        button_frame.pack(fill=tk.X, padx=10, pady=10)
+        ttk.Button(button_frame, text="Cancel", command=comment_dialog.destroy).pack(side=tk.LEFT)
+        ttk.Button(button_frame, text="Comment", command=do_comment).pack(side=tk.RIGHT)
+
     def refresh_feed(self):
         if not self.token:
             self.feed_text.config(state=tk.NORMAL)
@@ -161,7 +205,7 @@ class RSSXTkinterUI:
                 self.feed_text.delete("1.0", tk.END)
                 for post in posts:
                     formatted = self.format_post(post)
-                    self.feed_text.insert(tk.END, formatted + "\n" + ("="*40) + "\n\n")
+                    self.feed_text.insert(tk.END, formatted)
                 self.feed_text.config(state=tk.DISABLED)
             else:
                 error = response.json().get("error", "Failed to fetch feed")
@@ -173,8 +217,14 @@ class RSSXTkinterUI:
         author = post.get("author", "Unknown")
         content = post.get("content", "")
         timestamp = post.get("timestamp", 0)
+        post_id = post.get("id", "")
         date_str = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
-        return f"Author: {author}\nDate: {date_str}\nContent:\n{content}"
+        formatted_post = f"Author: {author}\nDate: {date_str}\nContent:\n{content}\n"
+
+        # Add a comment button for each post
+        self.feed_text.window_create(tk.END, window=ttk.Button(self.feed_text, text="Comment", command=lambda: self.show_comment_dialog(post_id)))
+        self.feed_text.insert(tk.END, "\n" + ("="*40) + "\n\n")
+        return formatted_post
 
     def save_token(self):
         if self.token and self.username:
