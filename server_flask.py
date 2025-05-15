@@ -1,18 +1,12 @@
-import os
 import argparse
 import logging
-import threading
 from flask import Flask, session, render_template
-from pathlib import Path
-
-# Import our modules
 from rssx.utils.config import Config
 from rssx.utils.logging_config import setup_logging
 from rssx.database.db import Database
 from rssx.security.crypto import Security
 from rssx.ui.web.web_controller import WebUI
 from flask import Blueprint, request, jsonify
-import logging
 import time
 import datetime
 
@@ -36,6 +30,7 @@ class RSSXApi:
         self.api.route('/post', methods=['POST'])(self.create_post)
         self.api.route('/feed', methods=['GET'])(self.get_feed)
         self.api.route('/post/<post_id>', methods=['GET'])(self.get_post)
+        self.api.route('/upvote', methods=['POST'])(self.upvote_post)
 
         # Server management routes
         self.api.route('/list_servers', methods=['GET'])(self.list_servers)
@@ -218,9 +213,40 @@ class RSSXApi:
         logger.info(f"Post created by {username} with ID: {post_id}")
         return jsonify({"message": "Post created successfully", "post_id": post_id}), 201
     
+    def upvote_post(self):
+        """Handle upvoting a post"""
+        token = request.headers.get("Authorization")
+        if not token or not token.startswith("Bearer "):
+            return jsonify({"error": "Authorization token is missing or invalid"}), 401
+        token = token.split("Bearer ")[1]
+        payload = self.security.verify_jwt(token)
+        if not payload:
+            return jsonify({"error": "Invalid or expired token"}), 401
+
+        data = request.json
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        post_id = data.get('post_id')
+        if not post_id:
+            return jsonify({"error": "post_id is required"}), 400
+
+        success = self.db.upvote_post(post_id)
+        if success:
+            return jsonify({"message": "Post upvoted successfully"}), 200
+        else:
+            return jsonify({"error": "Failed to upvote post"}), 500
+
     def get_feed(self):
-        """Get all posts from the local database"""
+        """Get all posts sorted by author popularity and upvotes"""
         posts = self.db.get_all_posts()
+
+        # Sort posts by author popularity and upvotes
+        posts.sort(key=lambda post: (
+            self.db.get_user(post['author']).get('popularity', 0),
+            post.get('upvotes', 0)
+        ), reverse=True)
+
         return jsonify({"posts": posts}), 200
     
     def get_post(self, post_id):
@@ -246,7 +272,6 @@ class RSSXApi:
         payload = self.security.verify_jwt(token)
         if not payload:
             return jsonify({"error": "Invalid or expired token"}), 401
-        username = payload.get('username')
         
         data = request.json
         if not data:

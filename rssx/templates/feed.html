@@ -42,21 +42,31 @@
                                 <span class="badge bg-secondary">Verified</span>
                             </div>
                         </div>
+                        <div class="mt-3">
+                            <p><strong>Upvotes: {{ post.upvotes }}</strong></p>
+                            {% if current_user %}
+                            <button class="btn btn-primary" onclick="upvotePost('{{ post.id }}')">Upvote</button>
+                            {% endif %}
+                        </div>
                     </div>
                     <div class="card-footer">
-                        <!-- Comments list container -->
-                        <ul class="list-group list-group-flush mb-2" id="comments-{{ post.id }}">
-                            <!-- Existing comments may be injected here -->
-                        </ul>
-                        {% if current_user %}
-                        <form onsubmit="submitComment(event, '{{ post.id }}')">
-                            <div class="input-group">
-                                <!-- You can leave name as is or change it; we now use the value directly -->
-                                <input type="text" class="form-control" id="comment-input-{{ post.id }}" placeholder="Add a comment..." required>
-                                <button class="btn btn-secondary" type="submit">Comment</button>
+                        <div class="comments">
+                            <h5>Comments</h5>
+                            <ul class="list-group list-group-flush mb-2" id="comments-{{ post.id }}">
+                                {% for comment in post.comments %}
+                                <div class="comment">
+                                    <p><strong>{{ comment.author }}</strong>: {{ comment.content }}</p>
+                                    <p><small>Commented on {{ comment.timestamp_formatted }}</small></p>
+                                </div>
+                                {% endfor %}
+                            </ul>
+                            {% if current_user %}
+                            <div class="input-group mt-2">
+                                <input type="text" class="form-control" id="comment-input-{{ post.id }}" placeholder="Add a comment...">
+                                <button class="btn btn-secondary" onclick="submitComment('{{ post.id }}')">Comment</button>
                             </div>
-                        </form>
-                        {% endif %}
+                            {% endif %}
+                        </div>
                     </div>
                 </div>
                 {% endfor %}
@@ -77,38 +87,39 @@
         location.reload();
     }, 30000);
 
-    // Function to submit a comment to /api/comment
-    function submitComment(event, postId) {
-        event.preventDefault();
-        var input = document.getElementById('comment-input-' + postId);
-        var commentText = input.value.trim();
-        if (!commentText) {
-            return;
-        }
-        
-        // Retrieve the token from the Flask app variable
-        var token = "{{ token }}";
-        
+    function getToken() {
+        return "{{ token }}";
+    }
+
+    function upvotePost(postId) {
+        fetch('/api/upvote', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + getToken()
+            },
+            body: JSON.stringify({ post_id: postId })
+        }).then(res => {
+            if (res.ok) location.reload();
+            else res.json().then(data => alert(data.error || 'Failed to upvote'));
+        });
+    }
+
+    function submitComment(postId) {
+        const input = document.getElementById('comment-input-' + postId);
+        const commentText = input.value.trim();
+        if (!commentText) return;
         fetch('/api/comment', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + token
+                'Authorization': 'Bearer ' + getToken()
             },
-            body: JSON.stringify({
-                post_id: postId,
-                content: commentText
-            })
-        })
-        .then(response => {
-            if (response.ok) {
-                // Optionally update the comment list; for now just reload the page.
-                location.reload();
-            } else {
-                console.error('Error submitting comment.');
-            }
-        })
-        .catch(error => console.error('Error:', error));
+            body: JSON.stringify({ post_id: postId, content: commentText })
+        }).then(res => {
+            if (res.ok) location.reload();
+            else res.json().then(data => alert(data.error || 'Failed to comment'));
+        });
     }
 </script>
 {% endblock %}

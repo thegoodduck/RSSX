@@ -1,4 +1,0 @@
-else:
-                    for post in posts:
-                        formatted = self.format_post(post)
-                        self.feed_text.insert(tk.END, formatted + "\n" + ("="*40) + "\n\n")

@@ -4,7 +4,6 @@ import requests
 import json
 import os
 import tkinter.simpledialog as simpledialog
-from tkinterweb import HtmlFrame
 from datetime import datetime
 
 _temp_root = tk.Tk()
@@ -204,8 +203,7 @@ class RSSXTkinterUI:
                 self.feed_text.config(state=tk.NORMAL)
                 self.feed_text.delete("1.0", tk.END)
                 for post in posts:
-                    formatted = self.format_post(post)
-                    self.feed_text.insert(tk.END, formatted)
+                    self.display_post(post)
                 self.feed_text.config(state=tk.DISABLED)
             else:
                 error = response.json().get("error", "Failed to fetch feed")
@@ -213,18 +211,48 @@ class RSSXTkinterUI:
         except Exception as e:
             messagebox.showerror("Error", f"Failed to fetch feed: {e}")
 
-    def format_post(self, post):
+    def display_post(self, post):
         author = post.get("author", "Unknown")
         content = post.get("content", "")
         timestamp = post.get("timestamp", 0)
-        post_id = post.get("id", "")
+        post_id = post.get("id", "Unknown")
+        upvotes = post.get("upvotes", 0)
         date_str = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
-        formatted_post = f"Author: {author}\nDate: {date_str}\nContent:\n{content}\n"
+
+        # Display the post content
+        self.feed_text.insert(tk.END, f"Author: {author}\nDate: {date_str}\nContent:\n{content}\nUpvotes: {upvotes}\n\n")
+
+        # Add an upvote button for each post
+        upvote_button = ttk.Button(self.root, text="Upvote", command=lambda: self.upvote_post(post_id))
+        self.feed_text.window_create(tk.END, window=upvote_button)
 
         # Add a comment button for each post
-        self.feed_text.window_create(tk.END, window=ttk.Button(self.feed_text, text="Comment", command=lambda: self.show_comment_dialog(post_id)))
+        comment_button = ttk.Button(self.root, text="Comment", command=lambda: self.show_comment_dialog(post_id))
+        self.feed_text.window_create(tk.END, window=comment_button)
+
         self.feed_text.insert(tk.END, "\n" + ("="*40) + "\n\n")
-        return formatted_post
+
+    def upvote_post(self, post_id):
+        if not self.token:
+            messagebox.showwarning("Warning", "Please log in first")
+            return
+
+        try:
+            headers = {"Authorization": f"Bearer {self.token}"}
+            response = requests.post(
+                f"{self.server_url}/api/upvote",
+                json={"post_id": post_id},
+                headers=headers,
+                timeout=5
+            )
+            if response.status_code == 200:
+                messagebox.showinfo("Success", "Post upvoted successfully")
+                self.refresh_feed()
+            else:
+                error = response.json().get("error", "Failed to upvote post")
+                messagebox.showerror("Error", error)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to upvote post: {e}")
 
     def save_token(self):
         if self.token and self.username:

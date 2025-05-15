@@ -17,17 +17,18 @@ class Database:
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            
+
             # Create users table
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 username TEXT PRIMARY KEY,
                 password TEXT NOT NULL,
                 created_at INTEGER NOT NULL,
-                last_login INTEGER
+                last_login INTEGER,
+                popularity INTEGER DEFAULT 0
             )
             ''')
-            
+
             # Create posts table
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS posts (
@@ -35,10 +36,11 @@ class Database:
                 author TEXT NOT NULL,
                 content TEXT NOT NULL,
                 timestamp INTEGER NOT NULL,
-                signature TEXT NOT NULL
+                signature TEXT NOT NULL,
+                upvotes INTEGER DEFAULT 0
             )
             ''')
-            
+
             # Create servers table
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS servers (
@@ -46,13 +48,13 @@ class Database:
                 last_sync INTEGER
             )
             ''')
-            
+
             conn.commit()
             logger.info("Database initialized successfully")
-            
+
             # Import existing data if available
             self._import_existing_data()
-            
+
         except sqlite3.Error as e:
             logger.error(f"Database initialization error: {str(e)}")
         finally:
@@ -339,4 +341,27 @@ class Database:
             return success
         except sqlite3.Error as e:
             logger.error(f"Database error in update_post: {str(e)}")
+            return False
+
+    def upvote_post(self, post_id):
+        """Increment the upvote count for a post and update the author's popularity"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            # Increment upvotes for the post
+            cursor.execute("UPDATE posts SET upvotes = upvotes + 1 WHERE id = ?", (post_id,))
+
+            # Get the author of the post
+            cursor.execute("SELECT author FROM posts WHERE id = ?", (post_id,))
+            author = cursor.fetchone()
+            if author:
+                # Increment the author's popularity
+                cursor.execute("UPDATE users SET popularity = popularity + 1 WHERE username = ?", (author[0],))
+
+            conn.commit()
+            conn.close()
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"Database error in upvote_post: {str(e)}")
             return False
