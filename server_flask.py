@@ -1,19 +1,14 @@
-import os
 import argparse
 import logging
-import threading
-from flask import Flask, session
-from pathlib import Path
-
-# Import our modules
+from flask import Flask, session, render_template
 from rssx.utils.config import Config
 from rssx.utils.logging_config import setup_logging
 from rssx.database.db import Database
 from rssx.security.crypto import Security
 from rssx.ui.web.web_controller import WebUI
 from flask import Blueprint, request, jsonify
-import logging
 import time
+import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +30,8 @@ class RSSXApi:
         self.api.route('/post', methods=['POST'])(self.create_post)
         self.api.route('/feed', methods=['GET'])(self.get_feed)
         self.api.route('/post/<post_id>', methods=['GET'])(self.get_post)
+        self.api.route('/upvote', methods=['POST'])(self.upvote_post)
+        self.api.route('/downvote', methods=['POST'])(self.downvote_post)
 
         # Server management routes
         self.api.route('/list_servers', methods=['GET'])(self.list_servers)
@@ -46,6 +43,71 @@ class RSSXApi:
 
         # Health check route
         self.api.route('/health', methods=['GET'])(self.health_check)
+        # Comment to post route
+        self.api.route('/comment', methods=['POST'])(self.create_comment)
+
+    def create_comment(self):
+        """Create a new comment on a post and append it to the original post content"""
+        # Inline authentication
+        token = request.headers.get("Authorization")
+        if not token or not token.startswith("Bearer "):
+            return jsonify({"error": "Authorization token is missing or invalid"}), 401
+        token = token.split("Bearer ")[1]
+        payload = self.security.verify_jwt(token)
+        if not payload:
+            return jsonify({"error": "Invalid or expired token"}), 401
+        username = payload.get('username')
+
+        data = request.json
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        content = data.get('content')
+        post_id = data.get('post_id')
+        if not content or not post_id:
+            return jsonify({"error": "Content and post_id are required"}), 400
+
+        # Create comment data
+        timestamp = int(time.time())
+        comment_data = {
+            "author": username,
+            "timestamp": timestamp,
+            "content": content,
+            "post_id": post_id
+        }
+
+        # Sign the comment data
+        signature_data = f"{comment_data['timestamp']}{comment_data['author']}{comment_data['content']}"
+        comment_data["signature"] = self.security.sign_data(signature_data)
+
+        # Save comment to database
+        comment_id = self.db.save_comment(comment_data)
+        if not comment_id:
+            logger.error(f"Failed to save comment for user: {username}")
+            return jsonify({"error": "Failed to save comment"}), 500
+
+        # Retrieve the original post
+        original_post = self.db.get_post_by_id(post_id)
+        if not original_post:
+            logger.error(f"Original post with ID {post_id} not found")
+            return jsonify({"error": "Original post not found"}), 404
+
+        # Create a separator including a link to the original post and a timestamp.
+        timestamp_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        separator = (
+            f"\n\n========== INFO - Original Post ID: {post_id} | {timestamp_str} | User: {username} ==========\n"
+        )
+        
+        # Append the comment to the original post content.
+        new_content = original_post["content"] + separator + f"{content}"
+
+        update_success = self.db.update_post(post_id, new_content)
+        if not update_success:
+            logger.error(f"Failed to update post {post_id} with new comment")
+            return jsonify({"error": "Failed to update post with comment"}), 500
+
+        logger.info(f"Comment created by {username} with ID: {comment_id} and appended to post {post_id}")
+        return jsonify({"message": "Comment created and appended successfully", "comment_id": comment_id}), 201
 
     def register(self):
         """Register a new user"""
@@ -102,6 +164,9 @@ class RSSXApi:
             logger.error(f"Failed to generate token for user: {username}")
             return jsonify({"error": "Failed to generate authentication token"}), 500
 
+        # Store token in session so we can access it in feed.html
+        session['token'] = token
+
         # Update last login time
         self.db.update_login_time(username)
 
@@ -149,9 +214,62 @@ class RSSXApi:
         logger.info(f"Post created by {username} with ID: {post_id}")
         return jsonify({"message": "Post created successfully", "post_id": post_id}), 201
     
+    def upvote_post(self):
+        """Handle upvoting a post (one per user)"""
+        token = request.headers.get("Authorization")
+        if not token or not token.startswith("Bearer "):
+            return jsonify({"error": "Authorization token is missing or invalid"}), 401
+        token = token.split("Bearer ")[1]
+        payload = self.security.verify_jwt(token)
+        if not payload:
+            return jsonify({"error": "Invalid or expired token"}), 401
+        username = payload.get('username')
+        data = request.json
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        post_id = data.get('post_id')
+        if not post_id:
+            return jsonify({"error": "post_id is required"}), 400
+        success = self.db.upvote_post(post_id, username)
+        self.db.remove_spam_posts()  # Update spam status after voting
+        if success:
+            return jsonify({"message": "Post upvoted successfully"}), 200
+        else:
+            return jsonify({"error": "You have already upvoted this post or error occurred"}), 400
+
+    def downvote_post(self):
+        """Handle downvoting a post (one per user)"""
+        token = request.headers.get("Authorization")
+        if not token or not token.startswith("Bearer "):
+            return jsonify({"error": "Authorization token is missing or invalid"}), 401
+        token = token.split("Bearer ")[1]
+        payload = self.security.verify_jwt(token)
+        if not payload:
+            return jsonify({"error": "Invalid or expired token"}), 401
+        username = payload.get('username')
+        data = request.json
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        post_id = data.get('post_id')
+        if not post_id:
+            return jsonify({"error": "post_id is required"}), 400
+        success = self.db.downvote_post(post_id, username)
+        self.db.remove_spam_posts()  # Update spam status after voting
+        if success:
+            return jsonify({"message": "Post downvoted successfully"}), 200
+        else:
+            return jsonify({"error": "You have already downvoted this post or error occurred"}), 400
+
     def get_feed(self):
-        """Get all posts from the local database"""
+        """Get all posts sorted by author popularity and upvotes"""
         posts = self.db.get_all_posts()
+
+        # Sort posts by author popularity and upvotes
+        posts.sort(key=lambda post: (
+            self.db.get_user(post['author']).get('popularity', 0),
+            post.get('upvotes', 0)
+        ), reverse=True)
+
         return jsonify({"posts": posts}), 200
     
     def get_post(self, post_id):
@@ -177,7 +295,6 @@ class RSSXApi:
         payload = self.security.verify_jwt(token)
         if not payload:
             return jsonify({"error": "Invalid or expired token"}), 401
-        username = payload.get('username')
         
         data = request.json
         if not data:
@@ -245,7 +362,6 @@ class RSSXApi:
 
 def create_app(config=None):
     """Create and configure the Flask application"""
-    # If no config provided, create one
     if config is None:
         config = Config()
     
@@ -269,7 +385,6 @@ def create_app(config=None):
                 template_folder=config.get("WEB_TEMPLATE_DIR"),
                 static_folder=config.get("WEB_STATIC_DIR"))
     
-    # Configure Flask app
     app.config["SECRET_KEY"] = config.get("JWT_SECRET_KEY")
     app.config["SESSION_TYPE"] = "filesystem"
     
@@ -284,12 +399,11 @@ def create_app(config=None):
         app.register_blueprint(web_ui.web, url_prefix='/')
         logger.info("Web UI registered at /")
     
-    # Add default route for API users
     @app.route('/')
     def index():
         if config.get("ENABLE_WEB_UI"):
-            # If web UI is enabled, this will be handled by the web blueprint
-            pass
+            # Render feed.html and supply the JWT token from session (if available)
+            return render_template("feed.html", token=session.get("token"))
         else:
             return {
                 "status": "ok",
@@ -313,12 +427,14 @@ def run_server(config=None, host="0.0.0.0", port=5000, debug=False):
     app, db, security, config = create_app(config)
     
     # Use command-line values if provided, otherwise use config
-    host = host or config.get("HOST")
-    port = port or config.get("PORT")
-    debug = debug if debug is not None else config.get("DEBUG")
-    
+    if host:
+        config.set("HOST", host)
+    if port:
+        config.set("PORT", port)
+    if debug is not None:
+        config.set("DEBUG", debug)
     # Start the server
-    app.run(host=host, port=port, debug=debug)
+    app.run(host=config.get("HOST"), port=int(config.get("PORT")), debug=config.get("DEBUG"))
 
 def run_tkinter_ui(config=None):
     """Run the Tkinter UI client"""
@@ -346,11 +462,14 @@ def main():
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
     parser.add_argument("--no-web-ui", action="store_true", help="Disable web UI")
     parser.add_argument("--client", choices=["tui", "gui", "web"], help="Run a client interface")
+    parser.add_argument("--db", help="Path to database file (will be created if it doesn't exist)")
     
     args = parser.parse_args()
     
     # Load configuration
     config = Config(args.config if args.config else "config.json")
+    if args.db:
+        config.set("DB_PATH", args.db)
     
     # Apply command-line overrides
     if args.no_web_ui:
