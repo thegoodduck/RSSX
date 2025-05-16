@@ -30,3 +30,4 @@ posts/
 *.tmp
 *.lock
 
+backupold.db
