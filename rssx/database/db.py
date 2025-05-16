@@ -17,17 +17,18 @@ class Database:
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            
+
             # Create users table
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS users (
                 username TEXT PRIMARY KEY,
                 password TEXT NOT NULL,
                 created_at INTEGER NOT NULL,
-                last_login INTEGER
+                last_login INTEGER,
+                popularity INTEGER DEFAULT 0
             )
             ''')
-            
+
             # Create posts table
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS posts (
@@ -35,10 +36,13 @@ class Database:
                 author TEXT NOT NULL,
                 content TEXT NOT NULL,
                 timestamp INTEGER NOT NULL,
-                signature TEXT NOT NULL
+                signature TEXT NOT NULL,
+                upvotes INTEGER DEFAULT 0,
+                downvotes INTEGER DEFAULT 0,
+                spam INTEGER DEFAULT 0
             )
             ''')
-            
+
             # Create servers table
             cursor.execute('''
             CREATE TABLE IF NOT EXISTS servers (
@@ -46,13 +50,24 @@ class Database:
                 last_sync INTEGER
             )
             ''')
-            
+
+            # Create votes table
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS votes (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                post_id TEXT NOT NULL,
+                username TEXT NOT NULL,
+                vote_type TEXT NOT NULL CHECK(vote_type IN ('upvote', 'downvote')),
+                UNIQUE(post_id, username)
+            )
+            ''')
+
             conn.commit()
             logger.info("Database initialized successfully")
-            
+
             # Import existing data if available
             self._import_existing_data()
-            
+
         except sqlite3.Error as e:
             logger.error(f"Database initialization error: {str(e)}")
         finally:
@@ -217,20 +232,24 @@ class Database:
             return None
     
     def get_all_posts(self):
-        """Get all posts"""
+        """Get all posts as a list of dicts, sorted by author popularity and post upvotes"""
         try:
             conn = sqlite3.connect(self.db_path)
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
-            
-            cursor.execute("SELECT * FROM posts ORDER BY timestamp DESC")
+            # Join posts with users to get author popularity
+            cursor.execute("""
+                SELECT posts.*, users.popularity as author_popularity
+                FROM posts
+                LEFT JOIN users ON posts.author = users.username
+                ORDER BY author_popularity DESC, posts.upvotes DESC, posts.timestamp DESC
+            """)
             rows = cursor.fetchall()
-            
             posts = []
             for row in rows:
-                post_content = f"ID: {row['id']}\nAuthor: {row['author']}\nTimestamp: {row['timestamp']}\nContent: {row['content']}\nSignature: {row['signature']}"
-                posts.append(post_content)
-            
+                post = dict(row)
+                post.pop('author_popularity', None)  # Remove if not needed in output
+                posts.append(post)
             conn.close()
             return posts
         except sqlite3.Error as e:
@@ -238,7 +257,7 @@ class Database:
             return []
     
     def get_post_by_id(self, post_id):
-        """Get a specific post by ID"""
+        """Get a specific post by ID and return as a dict"""
         try:
             conn = sqlite3.connect(self.db_path)
             conn.row_factory = sqlite3.Row
@@ -246,12 +265,10 @@ class Database:
             
             cursor.execute("SELECT * FROM posts WHERE id = ?", (post_id,))
             row = cursor.fetchone()
+            conn.close()
             
             if row:
-                post_content = f"ID: {row['id']}\nAuthor: {row['author']}\nTimestamp: {row['timestamp']}\nContent: {row['content']}\nSignature: {row['signature']}"
-                return post_content
-            
-            conn.close()
+                return dict(row)
             return None
         except sqlite3.Error as e:
             logger.error(f"Database error in get_post_by_id: {str(e)}")
@@ -291,4 +308,152 @@ class Database:
             return result
         except sqlite3.Error as e:
             logger.error(f"Database error in add_server: {str(e)}")
+            return False
+    
+    def save_comment(self, comment_data):
+        """Save a new comment to the database and return its ID"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            # Ensure the comments table exists
+            cursor.execute('''
+                CREATE TABLE IF NOT EXISTS comments (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    author TEXT NOT NULL,
+                    timestamp INTEGER NOT NULL,
+                    content TEXT NOT NULL,
+                    post_id TEXT NOT NULL,
+                    signature TEXT NOT NULL
+                )
+            ''')
+            cursor.execute(
+                "INSERT INTO comments (author, timestamp, content, post_id, signature) VALUES (?, ?, ?, ?, ?)",
+                (
+                    comment_data["author"],
+                    comment_data["timestamp"],
+                    comment_data["content"],
+                    comment_data["post_id"],
+                    comment_data["signature"]
+                )
+            )
+            conn.commit()
+            comment_id = cursor.lastrowid
+            conn.close()
+            return comment_id
+        except sqlite3.Error as e:
+            logger.error(f"Database error in save_comment: {str(e)}")
+            return None
+
+    def update_post(self, post_id, new_content):
+        """Update the content of an existing post"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute(
+                "UPDATE posts SET content = ? WHERE id = ?",
+                (new_content, post_id)
+            )
+            conn.commit()
+            success = cursor.rowcount > 0
+            conn.close()
+            return success
+        except sqlite3.Error as e:
+            logger.error(f"Database error in update_post: {str(e)}")
+            return False
+
+    def upvote_post(self, post_id, username):
+        """Allow a user to upvote a post only once"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            # Check if user already voted
+            cursor.execute("SELECT vote_type FROM votes WHERE post_id = ? AND username = ?", (post_id, username))
+            row = cursor.fetchone()
+            if row:
+                if row[0] == 'upvote':
+                    conn.close()
+                    return False  # Already upvoted
+                elif row[0] == 'downvote':
+                    # Change downvote to upvote
+                    cursor.execute("UPDATE votes SET vote_type = 'upvote' WHERE post_id = ? AND username = ?", (post_id, username))
+                    cursor.execute("UPDATE posts SET upvotes = upvotes + 1, downvotes = downvotes - 1 WHERE id = ?", (post_id,))
+                else:
+                    conn.close()
+                    return False
+            else:
+                # New upvote
+                cursor.execute("INSERT INTO votes (post_id, username, vote_type) VALUES (?, ?, 'upvote')", (post_id, username))
+                cursor.execute("UPDATE posts SET upvotes = upvotes + 1 WHERE id = ?", (post_id,))
+            # Update author popularity
+            cursor.execute("SELECT author FROM posts WHERE id = ?", (post_id,))
+            author = cursor.fetchone()
+            if author:
+                cursor.execute("UPDATE users SET popularity = popularity + 1 WHERE username = ?", (author[0],))
+            conn.commit()
+            conn.close()
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"Database error in upvote_post: {str(e)}")
+            return False
+
+    def downvote_post(self, post_id, username):
+        """Allow a user to downvote a post only once"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            # Check if user already voted
+            cursor.execute("SELECT vote_type FROM votes WHERE post_id = ? AND username = ?", (post_id, username))
+            row = cursor.fetchone()
+            if row:
+                if row[0] == 'downvote':
+                    conn.close()
+                    return False  # Already downvoted
+                elif row[0] == 'upvote':
+                    # Change upvote to downvote
+                    cursor.execute("UPDATE votes SET vote_type = 'downvote' WHERE post_id = ? AND username = ?", (post_id, username))
+                    cursor.execute("UPDATE posts SET downvotes = downvotes + 1, upvotes = upvotes - 1 WHERE id = ?", (post_id,))
+                else:
+                    conn.close()
+                    return False
+            else:
+                # New downvote
+                cursor.execute("INSERT INTO votes (post_id, username, vote_type) VALUES (?, ?, 'downvote')", (post_id, username))
+                cursor.execute("UPDATE posts SET downvotes = downvotes + 1 WHERE id = ?", (post_id,))
+            conn.commit()
+            conn.close()
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"Database error in downvote_post: {str(e)}")
+            return False
+
+    def mark_spam_column(self):
+        """Ensure the posts table has a 'spam' column for decentralized spam marking."""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("ALTER TABLE posts ADD COLUMN spam INTEGER DEFAULT 0")
+            conn.commit()
+            conn.close()
+        except sqlite3.OperationalError as e:
+            # Column already exists
+            if 'duplicate column name' not in str(e):
+                logger.error(f"Error adding spam column: {str(e)}")
+
+    def remove_spam_posts(self, blacklist=None):
+        """Mark posts as spam (decentralized): more downvotes than upvotes, or containing blacklisted words."""
+        self.mark_spam_column()
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            # Mark posts with more downvotes than upvotes as spam
+            cursor.execute("UPDATE posts SET spam = 1 WHERE downvotes > upvotes")
+            # Mark posts containing blacklisted words as spam
+            if blacklist:
+                for word in blacklist:
+                    cursor.execute("UPDATE posts SET spam = 1 WHERE content LIKE ?", (f"%{word}%",))
+            conn.commit()
+            conn.close()
+            return True
+        except sqlite3.Error as e:
+            logger.error(f"Database error in remove_spam_posts: {str(e)}")
             return False

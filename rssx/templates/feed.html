@@ -3,6 +3,76 @@
 {% block title %}RSSX - Feed{% endblock %}
 
 {% block content %}
+<style>
+/* Reddit-like post layout */
+.reddit-post {
+    display: flex;
+    background: #f8f9fa;
+    border-radius: 8px;
+    margin-bottom: 1.5rem;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+}
+.vote-column {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 1.2rem 0.7rem 1.2rem 0.7rem;
+    background: #f1f3f4;
+    border-radius: 8px 0 0 8px;
+    min-width: 56px;
+}
+.vote-btn {
+    background: none;
+    border: none;
+    cursor: pointer;
+    font-size: 1.4rem;
+    line-height: 1;
+    color: #6c757d;
+    transition: color 0.2s;
+}
+.vote-btn.upvote:hover { color: #0d6efd; }
+.vote-btn.downvote:hover { color: #dc3545; }
+.vote-count {
+    font-weight: bold;
+    margin: 0.5rem 0;
+    color: #212529;
+}
+.reddit-post-body {
+    flex: 1;
+    padding: 1.2rem 1.5rem 1.2rem 1rem;
+    display: flex;
+    flex-direction: column;
+}
+.reddit-post-footer {
+    background: #f1f3f4;
+    border-radius: 0 0 8px 8px;
+    padding: 0.7rem 1.5rem;
+    margin: 0 -1.5rem -1.2rem -1rem;
+}
+.comment-list {
+    margin: 0;
+    padding: 0;
+    list-style: none;
+}
+.comment-item {
+    background: #f8f9fa;
+    border-radius: 5px;
+    margin-bottom: 0.5rem;
+    padding: 0.5rem 0.8rem;
+    border-left: 3px solid #dee2e6;
+}
+.comment-meta {
+    font-size: 0.85rem;
+    color: #888;
+}
+.comment-author {
+    font-weight: 500;
+    color: #0d6efd;
+}
+.comment-input-group {
+    margin-top: 0.7rem;
+}
+</style>
 <div class="row">
     <div class="col-lg-8 mx-auto">
         <div class="card shadow-sm mb-4">
@@ -20,6 +90,17 @@
                         <button type="submit" class="btn btn-primary">Post</button>
                     </form>
                 </div>
+                <!-- Add Federated Server Form -->
+                <div class="mb-4 p-3 bg-light rounded">
+                    <h5>Add Federated Server</h5>
+                    <form id="add-server-form">
+                        <div class="mb-3">
+                            <input type="url" class="form-control" id="federated-server-url" placeholder="https://example-server.com" required />
+                        </div>
+                        <button type="submit" class="btn btn-success">Add Server</button>
+                    </form>
+                    <div id="federated-server-msg" class="mt-2"></div>
+                </div>
                 {% endif %}
             </div>
         </div>
@@ -27,19 +108,57 @@
         <div id="posts-container">
             {% if posts %}
                 {% for post in posts %}
-                <div class="card shadow-sm mb-3 post">
-                    <div class="card-body">
+                <div class="reddit-post">
+                    <div class="vote-column">
+                        {% if current_user %}
+                        <button class="vote-btn upvote" onclick="upvotePost('{{ post.id }}')" title="Upvote">&#8679;</button>
+                        {% else %}
+                        <span class="vote-btn upvote" style="opacity:0.5">&#8679;</span>
+                        {% endif %}
+                        <div class="vote-count">{{ post.upvotes - post.downvotes }}</div>
+                        {% if current_user %}
+                        <button class="vote-btn downvote" onclick="downvotePost('{{ post.id }}')" title="Downvote">&#8681;</button>
+                        {% else %}
+                        <span class="vote-btn downvote" style="opacity:0.5">&#8681;</span>
+                        {% endif %}
+                    </div>
+                    <div class="reddit-post-body">
+                        {% if post.spam and post.spam|int > 0 %}
+                        <div class="alert alert-warning mb-2"><strong>Suspected Spam:</strong> This post has been flagged as spam by the network.</div>
+                        {% endif %}
                         <div class="d-flex justify-content-between align-items-center mb-2">
-                            <h5 class="card-title mb-0">{{ post.author }}</h5>
+                            <span>
+                                <span class="fw-bold">{{ post.author }}</span>
+                                <span class="badge bg-secondary ms-2">Verified</span>
+                            </span>
                             <small class="text-muted">{{ post.timestamp_formatted }}</small>
                         </div>
-                        <p class="card-text">{{ post.content }}</p>
-                        <div class="d-flex justify-content-between">
+                        <div class="mb-2">
+                            <p class="card-text mb-1" style="white-space:pre-line;">{{ post.content | safe }}</p>
+                        </div>
+                        <div class="d-flex justify-content-between align-items-center">
+                            <small class="text-muted">ID: {{ post.id }}</small>
+                        </div>
+                        <div class="reddit-post-footer mt-3">
                             <div>
-                                <small class="text-muted">ID: {{ post.id }}</small>
+                                <span class="me-3"><i class="bi bi-chat"></i> {{ post.comments|length }} comments</span>
                             </div>
-                            <div>
-                                <span class="badge bg-secondary">Verified</span>
+                            <div class="comments mt-2">
+                                <ul class="comment-list" id="comments-{{ post.id }}">
+                                    {% for comment in post.comments %}
+                                    <li class="comment-item">
+                                        <span class="comment-author">{{ comment.author }}</span>
+                                        <span>: {{ comment.content }}</span>
+                                        <div class="comment-meta">Commented on {{ comment.timestamp_formatted }}</div>
+                                    </li>
+                                    {% endfor %}
+                                </ul>
+                                {% if current_user %}
+                                <div class="input-group comment-input-group">
+                                    <input type="text" class="form-control" id="comment-input-{{ post.id }}" placeholder="Add a comment...">
+                                    <button class="btn btn-secondary" onclick="submitComment('{{ post.id }}')">Comment</button>
+                                </div>
+                                {% endif %}
                             </div>
                         </div>
                     </div>
@@ -57,9 +176,216 @@
 
 {% block scripts %}
 <script>
-    // Auto-refresh feed every 30 seconds
+    // Auto refresh feed every 30 seconds
     setTimeout(function() {
         location.reload();
     }, 30000);
+
+    function getToken() {
+        return "{{ token }}";
+    }
+
+    function upvotePost(postId) {
+        fetch('/api/upvote', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + getToken()
+            },
+            body: JSON.stringify({ post_id: postId })
+        }).then(res => {
+            if (res.ok) location.reload();
+            else res.json().then(data => alert(data.error || 'Failed to upvote'));
+        });
+    }
+
+    // --- Simple RSA key management ---
+    async function generateKeyPair() {
+        const keyPair = await window.crypto.subtle.generateKey({
+            name: 'RSA-OAEP',
+            modulusLength: 2048,
+            publicExponent: new Uint8Array([1, 0, 1]),
+            hash: 'SHA-256',
+        }, true, ['encrypt', 'decrypt']);
+        const pub = await window.crypto.subtle.exportKey('jwk', keyPair.publicKey);
+        const priv = await window.crypto.subtle.exportKey('jwk', keyPair.privateKey);
+        localStorage.setItem('rsa_pub', JSON.stringify(pub));
+        localStorage.setItem('rsa_priv', JSON.stringify(priv));
+        return keyPair;
+    }
+    async function getKeyPair() {
+        let pub = localStorage.getItem('rsa_pub');
+        let priv = localStorage.getItem('rsa_priv');
+        if (!pub || !priv) return await generateKeyPair();
+        pub = await window.crypto.subtle.importKey('jwk', JSON.parse(pub), {name:'RSA-OAEP', hash:'SHA-256'}, true, ['encrypt']);
+        priv = await window.crypto.subtle.importKey('jwk', JSON.parse(priv), {name:'RSA-OAEP', hash:'SHA-256'}, true, ['decrypt']);
+        return { publicKey: pub, privateKey: priv };
+    }
+    async function encryptText(text, publicKey) {
+        const enc = new TextEncoder().encode(text);
+        const encrypted = await window.crypto.subtle.encrypt({name:'RSA-OAEP'}, publicKey, enc);
+        return btoa(String.fromCharCode(...new Uint8Array(encrypted)));
+    }
+    async function decryptText(base64, privateKey) {
+        try {
+            const data = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
+            const decrypted = await window.crypto.subtle.decrypt({name:'RSA-OAEP'}, privateKey, data);
+            return new TextDecoder().decode(decrypted);
+        } catch (e) { return '[Encrypted]'; }
+    }
+
+    // --- Encrypt post before sending ---
+    document.addEventListener('DOMContentLoaded', function() {
+        const postForm = document.querySelector("form[action='{{ url_for('web.create_post') }}']");
+        if (postForm) {
+            postForm.addEventListener('submit', async function(e) {
+                e.preventDefault();
+                const textarea = postForm.querySelector('textarea[name="content"]');
+                const keyPair = await getKeyPair();
+                const encrypted = await encryptText(textarea.value, keyPair.publicKey);
+                textarea.value = encrypted;
+                postForm.submit();
+            });
+        }
+    });
+
+    // --- Encrypt comment before sending ---
+    async function submitComment(postId) {
+        const input = document.getElementById('comment-input-' + postId);
+        const commentText = input.value.trim();
+        if (!commentText) return;
+        const keyPair = await getKeyPair();
+        const encrypted = await encryptText(commentText, keyPair.publicKey);
+        fetch('/api/comment', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + getToken()
+            },
+            body: JSON.stringify({ post_id: postId, content: encrypted })
+        }).then(res => {
+            if (res.ok) location.reload();
+            else res.json().then(data => alert(data.error || 'Failed to comment'));
+        });
+    }
+
+    // --- Decrypt posts/comments on page load ---
+    document.addEventListener('DOMContentLoaded', async function() {
+        const keyPair = await getKeyPair();
+        // Decrypt posts
+        document.querySelectorAll('.card-text.mb-1').forEach(async function(el) {
+            const encrypted = el.textContent;
+            const decrypted = await decryptText(encrypted, keyPair.privateKey);
+            el.textContent = decrypted;
+        });
+        // Decrypt comments
+        document.querySelectorAll('.comment-item').forEach(async function(li) {
+            const span = li.querySelector('span:not(.comment-author)');
+            if (span) {
+                const encrypted = span.textContent.replace(/^: /, '');
+                const decrypted = await decryptText(encrypted, keyPair.privateKey);
+                span.textContent = ': ' + decrypted;
+            }
+        });
+    });
+
+    // --- Federation: Fetch posts from other servers and merge into feed ---
+    const federatedServers = [
+        // Add more server URLs as needed
+        'https://example-remote-server.com',
+        // 'https://another-server.com',
+    ];
+
+    async function fetchFederatedPosts() {
+        for (const server of federatedServers) {
+            try {
+                const res = await fetch(server + '/api/feed');
+                if (!res.ok) continue;
+                const data = await res.json();
+                // Assume data.posts is an array of post objects similar to your own
+                data.posts.forEach(post => {
+                    // Create a post element and append to #posts-container
+                    const postDiv = document.createElement('div');
+                    postDiv.className = 'reddit-post';
+                    postDiv.innerHTML = `
+                        <div class="vote-column">
+                            <span class="vote-btn upvote" style="opacity:0.5">&#8679;</span>
+                            <div class="vote-count">?</div>
+                            <span class="vote-btn downvote" style="opacity:0.5">&#8681;</span>
+                        </div>
+                        <div class="reddit-post-body">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <span>
+                                    <span class="fw-bold">${post.author || 'Remote'}</span>
+                                    <span class="badge bg-secondary ms-2">Federated</span>
+                                </span>
+                                <small class="text-muted">${post.timestamp_formatted || ''}</small>
+                            </div>
+                            <div class="mb-2">
+                                <p class="card-text mb-1" style="white-space:pre-line;">${post.content}</p>
+                            </div>
+                            <div class="d-flex justify-content-between align-items-center">
+                                <small class="text-muted">ID: ${post.id || ''}</small>
+                            </div>
+                        </div>
+                    `;
+                    document.getElementById('posts-container').appendChild(postDiv);
+                });
+            } catch (e) {
+                // Ignore errors for unreachable servers
+            }
+        }
+    }
+    document.addEventListener('DOMContentLoaded', fetchFederatedPosts);
+
+    // --- Federation placeholder ---
+    // In a real decentralized system, you would fetch posts from other servers here
+    // Example: fetch('https://other-server.example.com/api/feed')
+
+    function downvotePost(postId) {
+        fetch('/api/downvote', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': 'Bearer ' + getToken()
+            },
+            body: JSON.stringify({ post_id: postId })
+        }).then(res => {
+            if (res.ok) location.reload();
+            else res.json().then(data => alert(data.error || 'Failed to downvote'));
+        });
+    }
+
+    // --- Add Federated Server via AJAX ---
+    document.addEventListener('DOMContentLoaded', function() {
+        const addServerForm = document.getElementById('add-server-form');
+        if (addServerForm) {
+            addServerForm.addEventListener('submit', function(e) {
+                e.preventDefault();
+                const urlInput = document.getElementById('federated-server-url');
+                const msgDiv = document.getElementById('federated-server-msg');
+                const serverUrl = urlInput.value.trim();
+                if (!serverUrl) return;
+                fetch('/api/add_server', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer ' + getToken()
+                    },
+                    body: JSON.stringify({ server_url: serverUrl })
+                }).then(res => res.json()).then(data => {
+                    if (data.message) {
+                        msgDiv.innerHTML = '<span class="text-success">Server added!</span>';
+                        urlInput.value = '';
+                        fetchFederatedPosts();
+                    } else {
+                        msgDiv.innerHTML = '<span class="text-danger">' + (data.error || 'Failed to add server') + '</span>';
+                    }
+                }).catch(() => {
+                    msgDiv.innerHTML = '<span class="text-danger">Network error</span>';
+                });
+            });
+        }
+    });
 </script>
 {% endblock %}

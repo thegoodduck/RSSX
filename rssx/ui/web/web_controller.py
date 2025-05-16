@@ -48,27 +48,17 @@ class WebUI:
     def _get_formatted_posts(self, posts_raw):
         """Format raw post data for display"""
         formatted_posts = []
-        for post_raw in posts_raw:
-            lines = post_raw.strip().split('\n')
-            post = {}
-            for line in lines:
-                if ': ' in line:
-                    key, value = line.split(': ', 1)
-                    post[key.lower()] = value.strip()
-            
-            # Format timestamp
-            if 'timestamp' in post:
-                try:
-                    ts = int(post['timestamp'])
-                    post['timestamp_formatted'] = datetime.fromtimestamp(ts).strftime('%Y-%m-%d %H:%M:%S')
-                except (ValueError, TypeError):
-                    post['timestamp_formatted'] = 'Unknown'
-            
+        for post in posts_raw:
+            # Get the content from the post dict
+            content = post.get("content", "")
+            # Optionally format content, e.g., split into lines if needed:
+            lines = content.split('\n')
+            # Add a formatted timestamp to the post dict:
+            timestamp = post.get("timestamp", 0)
+            post["timestamp_formatted"] = datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M:%S")
+            # Optionally add a processed version of content if desired:
+            post["content_formatted"] = "<br/>".join(lines)
             formatted_posts.append(post)
-        
-        # Sort by timestamp, newest first
-        formatted_posts.sort(key=lambda x: int(x.get('timestamp', 0)) if x.get('timestamp', '').isdigit() else 0, reverse=True)
-        
         return formatted_posts
     
     def index(self):
@@ -81,8 +71,9 @@ class WebUI:
         posts = self._get_formatted_posts(posts_raw)
         
         return render_template('feed.html', 
-                             current_user=self.current_user,
-                             posts=posts)
+                               current_user=self.current_user,
+                               posts=posts,
+                               token=session.get("token"))
     
     def servers(self):
         """Manage connected servers"""
