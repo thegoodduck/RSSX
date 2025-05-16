@@ -217,20 +217,52 @@ class RSSXTkinterUI:
         timestamp = post.get("timestamp", 0)
         post_id = post.get("id", "Unknown")
         upvotes = post.get("upvotes", 0)
+        downvotes = post.get("downvotes", 0)
+        spam = post.get("spam", 0)
         date_str = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
 
+        # Show suspected spam warning if marked
+        if spam:
+            self.feed_text.insert(tk.END, "[SUSPECTED SPAM] This post has been flagged as spam by the network.\n", 'spam')
+            self.feed_text.tag_config('spam', foreground='red', font=('TkDefaultFont', 10, 'bold'))
+
         # Display the post content
-        self.feed_text.insert(tk.END, f"Author: {author}\nDate: {date_str}\nContent:\n{content}\nUpvotes: {upvotes}\n\n")
+        self.feed_text.insert(tk.END, f"Author: {author}\nDate: {date_str}\nContent:\n{content}\nUpvotes: {upvotes}  Downvotes: {downvotes}\n\n")
 
         # Add an upvote button for each post
         upvote_button = ttk.Button(self.root, text="Upvote", command=lambda: self.upvote_post(post_id))
         self.feed_text.window_create(tk.END, window=upvote_button)
+
+        # Add a downvote button for each post
+        downvote_button = ttk.Button(self.root, text="Downvote", command=lambda: self.downvote_post(post_id))
+        self.feed_text.window_create(tk.END, window=downvote_button)
 
         # Add a comment button for each post
         comment_button = ttk.Button(self.root, text="Comment", command=lambda: self.show_comment_dialog(post_id))
         self.feed_text.window_create(tk.END, window=comment_button)
 
         self.feed_text.insert(tk.END, "\n" + ("="*40) + "\n\n")
+
+    def downvote_post(self, post_id):
+        if not self.token:
+            messagebox.showwarning("Warning", "Please log in first")
+            return
+        try:
+            headers = {"Authorization": f"Bearer {self.token}"}
+            response = requests.post(
+                f"{self.server_url}/api/downvote",
+                json={"post_id": post_id},
+                headers=headers,
+                timeout=5
+            )
+            if response.status_code == 200:
+                messagebox.showinfo("Success", "Post downvoted successfully")
+                self.refresh_feed()
+            else:
+                error = response.json().get("error", "Failed to downvote post")
+                messagebox.showerror("Error", error)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to downvote post: {e}")
 
     def upvote_post(self, post_id):
         if not self.token:

@@ -30,3 +30,5 @@ posts/
 *.tmp
 *.lock
 
+backupold.db
+.gitignore

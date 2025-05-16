@@ -31,6 +31,7 @@ class RSSXApi:
         self.api.route('/feed', methods=['GET'])(self.get_feed)
         self.api.route('/post/<post_id>', methods=['GET'])(self.get_post)
         self.api.route('/upvote', methods=['POST'])(self.upvote_post)
+        self.api.route('/downvote', methods=['POST'])(self.downvote_post)
 
         # Server management routes
         self.api.route('/list_servers', methods=['GET'])(self.list_servers)
@@ -214,7 +215,7 @@ class RSSXApi:
         return jsonify({"message": "Post created successfully", "post_id": post_id}), 201
     
     def upvote_post(self):
-        """Handle upvoting a post"""
+        """Handle upvoting a post (one per user)"""
         token = request.headers.get("Authorization")
         if not token or not token.startswith("Bearer "):
             return jsonify({"error": "Authorization token is missing or invalid"}), 401
@@ -222,20 +223,42 @@ class RSSXApi:
         payload = self.security.verify_jwt(token)
         if not payload:
             return jsonify({"error": "Invalid or expired token"}), 401
-
+        username = payload.get('username')
         data = request.json
         if not data:
             return jsonify({"error": "No data provided"}), 400
-
         post_id = data.get('post_id')
         if not post_id:
             return jsonify({"error": "post_id is required"}), 400
-
-        success = self.db.upvote_post(post_id)
+        success = self.db.upvote_post(post_id, username)
+        self.db.remove_spam_posts()  # Update spam status after voting
         if success:
             return jsonify({"message": "Post upvoted successfully"}), 200
         else:
-            return jsonify({"error": "Failed to upvote post"}), 500
+            return jsonify({"error": "You have already upvoted this post or error occurred"}), 400
+
+    def downvote_post(self):
+        """Handle downvoting a post (one per user)"""
+        token = request.headers.get("Authorization")
+        if not token or not token.startswith("Bearer "):
+            return jsonify({"error": "Authorization token is missing or invalid"}), 401
+        token = token.split("Bearer ")[1]
+        payload = self.security.verify_jwt(token)
+        if not payload:
+            return jsonify({"error": "Invalid or expired token"}), 401
+        username = payload.get('username')
+        data = request.json
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        post_id = data.get('post_id')
+        if not post_id:
+            return jsonify({"error": "post_id is required"}), 400
+        success = self.db.downvote_post(post_id, username)
+        self.db.remove_spam_posts()  # Update spam status after voting
+        if success:
+            return jsonify({"message": "Post downvoted successfully"}), 200
+        else:
+            return jsonify({"error": "You have already downvoted this post or error occurred"}), 400
 
     def get_feed(self):
         """Get all posts sorted by author popularity and upvotes"""
@@ -404,12 +427,14 @@ def run_server(config=None, host="0.0.0.0", port=5000, debug=False):
     app, db, security, config = create_app(config)
     
     # Use command-line values if provided, otherwise use config
-    host = host or config.get("HOST")
-    port = port or config.get("PORT")
-    debug = debug if debug is not None else config.get("DEBUG")
-    
+    if host:
+        config.set("HOST", host)
+    if port:
+        config.set("PORT", port)
+    if debug is not None:
+        config.set("DEBUG", debug)
     # Start the server
-    app.run(host=host, port=port, debug=debug)
+    app.run(host=config.get("HOST"), port=int(config.get("PORT")), debug=config.get("DEBUG"))
 
 def run_tkinter_ui(config=None):
     """Run the Tkinter UI client"""
@@ -437,11 +462,14 @@ def main():
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
     parser.add_argument("--no-web-ui", action="store_true", help="Disable web UI")
     parser.add_argument("--client", choices=["tui", "gui", "web"], help="Run a client interface")
+    parser.add_argument("--db", help="Path to database file (will be created if it doesn't exist)")
     
     args = parser.parse_args()
     
     # Load configuration
     config = Config(args.config if args.config else "config.json")
+    if args.db:
+        config.set("DB_PATH", args.db)
     
     # Apply command-line overrides
     if args.no_web_ui:

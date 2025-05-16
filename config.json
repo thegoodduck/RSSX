@@ -1,0 +1,21 @@
+{
+    "HOST": "0.0.0.0",
+    "PORT": 5001,
+    "DEBUG": false,
+    "JWT_SECRET_KEY": "your_secret_key",
+    "PUBLIC_KEY_FILE": "rsa_public.pem",
+    "PRIVATE_KEY_FILE": "rsa_private.pem",
+    "TOKEN_EXPIRY_HOURS": 24,
+    "DB_PATH": "rssx2.db",
+    "POSTS_DIRECTORY": "posts",
+    "USERS_FILE": "users.json",
+    "SERVERS_FILE": "servers.json",
+    "LOG_LEVEL": "INFO",
+    "LOG_FILE": "rssx.log",
+    "ENABLE_WEB_UI": true,
+    "ENABLE_TUI": true,
+    "ENABLE_TKINTER_UI": true,
+    "WEB_TEMPLATE_DIR": "rssx/templates",
+    "WEB_STATIC_DIR": "rssx/static",
+    "DEFAULT_SERVER": "http://127.0.0.1:5000"
+}
