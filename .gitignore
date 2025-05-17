@@ -30,4 +30,7 @@ posts/
 *.tmp
 *.lock
 
+# Database files and backups
 backupold.db
+db_backups/
+

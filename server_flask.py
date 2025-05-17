@@ -11,39 +11,40 @@ import time
 
 logger = logging.getLogger(__name__)
 
+
 class RSSXApi:
     def __init__(self, database, security):
         """Initialize the API with database and security instances"""
         self.db = database
         self.security = security
-        self.api = Blueprint('api', __name__)
+        self.api = Blueprint("api", __name__)
         self.register_routes()
 
     def register_routes(self):
         """Register all API routes"""
         # User authentication routes
-        self.api.route('/register', methods=['POST'])(self.register)
-        self.api.route('/login', methods=['POST'])(self.login)
+        self.api.route("/register", methods=["POST"])(self.register)
+        self.api.route("/login", methods=["POST"])(self.login)
 
         # Post management routes
-        self.api.route('/post', methods=['POST'])(self.create_post)
-        self.api.route('/feed', methods=['GET'])(self.get_feed)
-        self.api.route('/post/<post_id>', methods=['GET'])(self.get_post)
-        self.api.route('/upvote', methods=['POST'])(self.upvote_post)
-        self.api.route('/downvote', methods=['POST'])(self.downvote_post)
+        self.api.route("/post", methods=["POST"])(self.create_post)
+        self.api.route("/feed", methods=["GET"])(self.get_feed)
+        self.api.route("/post/<post_id>", methods=["GET"])(self.get_post)
+        self.api.route("/upvote", methods=["POST"])(self.upvote_post)
+        self.api.route("/downvote", methods=["POST"])(self.downvote_post)
 
         # Server management routes
-        self.api.route('/list_servers', methods=['GET'])(self.list_servers)
-        self.api.route('/add_server', methods=['POST'])(self.add_server)
-        self.api.route('/register_ip', methods=['POST'])(self.register_ip)
+        self.api.route("/list_servers", methods=["GET"])(self.list_servers)
+        self.api.route("/add_server", methods=["POST"])(self.add_server)
+        self.api.route("/register_ip", methods=["POST"])(self.register_ip)
 
         # User profile routes
-        self.api.route('/profile', methods=['GET'])(self.get_profile)
+        self.api.route("/profile", methods=["GET"])(self.get_profile)
 
         # Health check route
-        self.api.route('/health', methods=['GET'])(self.health_check)
+        self.api.route("/health", methods=["GET"])(self.health_check)
         # Comment to post route
-        self.api.route('/comment', methods=['POST'])(self.create_comment)
+        self.api.route("/comment", methods=["POST"])(self.create_comment)
 
     def create_comment(self):
         """Create a new comment on a post"""
@@ -55,14 +56,14 @@ class RSSXApi:
         payload = self.security.verify_jwt(token)
         if not payload:
             return jsonify({"error": "Invalid or expired token"}), 401
-        username = payload.get('username')
+        username = payload.get("username")
 
         data = request.json
         if not data:
             return jsonify({"error": "No data provided"}), 400
 
-        content = data.get('content')
-        post_id = data.get('post_id')
+        content = data.get("content")
+        post_id = data.get("post_id")
         if not content or not post_id:
             return jsonify({"error": "Content and post_id are required"}), 400
 
@@ -72,7 +73,7 @@ class RSSXApi:
             "author": username,
             "timestamp": timestamp,
             "content": content,
-            "post_id": post_id
+            "post_id": post_id,
         }
 
         # Sign the comment data
@@ -84,9 +85,9 @@ class RSSXApi:
         if not comment_id:
             logger.error(f"Failed to save comment for user: {username}")
             return jsonify({"error": "Failed to save comment"}), 500
-
         logger.info(f"Comment created by {username} with ID: {comment_id} for post {post_id}")
         return jsonify({"message": "Comment created successfully", "comment_id": comment_id}), 201
+
 
     def register(self):
         """Register a new user"""
@@ -94,8 +95,8 @@ class RSSXApi:
         if not data:
             return jsonify({"error": "No data provided"}), 400
 
-        username = data.get('username')
-        password = data.get('password')
+        username = data.get("username")
+        password = data.get("password")
 
         if not username or not password:
             return jsonify({"error": "Missing username or password"}), 400
@@ -120,8 +121,8 @@ class RSSXApi:
         if not data:
             return jsonify({"error": "No data provided"}), 400
 
-        username = data.get('username')
-        password = data.get('password')
+        username = data.get("username")
+        password = data.get("password")
 
         if not username or not password:
             return jsonify({"error": "Missing username or password"}), 400
@@ -133,7 +134,7 @@ class RSSXApi:
             return jsonify({"error": "Invalid credentials"}), 401
 
         # Verify password
-        if not self.security.verify_password(password, user['password']):
+        if not self.security.verify_password(password, user["password"]):
             logger.warning(f"Failed login attempt for user: {username}")
             return jsonify({"error": "Invalid credentials"}), 401
 
@@ -144,7 +145,7 @@ class RSSXApi:
             return jsonify({"error": "Failed to generate authentication token"}), 500
 
         # Store token in session so we can access it in feed.html
-        session['token'] = token
+        session["token"] = token
 
         # Update last login time
         self.db.update_login_time(username)
@@ -162,26 +163,24 @@ class RSSXApi:
         payload = self.security.verify_jwt(token)
         if not payload:
             return jsonify({"error": "Invalid or expired token"}), 401
-        username = payload.get('username')
+        username = payload.get("username")
 
         data = request.json
         if not data:
             return jsonify({"error": "No data provided"}), 400
 
-        content = data.get('content')
+        content = data.get("content")
         if not content:
             return jsonify({"error": "Content is required"}), 400
 
         # Create post data
         timestamp = int(time.time())
-        post_data = {
-            "author": username,
-            "timestamp": timestamp,
-            "content": content
-        }
+        post_data = {"author": username, "timestamp": timestamp, "content": content}
 
         # Sign the post data
-        signature_data = f"{post_data['timestamp']}{post_data['author']}{post_data['content']}"
+        signature_data = (
+            f"{post_data['timestamp']}{post_data['author']}{post_data['content']}"
+        )
         post_data["signature"] = self.security.sign_data(signature_data)
 
         # Save post to database
@@ -189,10 +188,13 @@ class RSSXApi:
         if not post_id:
             logger.error(f"Failed to save post for user: {username}")
             return jsonify({"error": "Failed to save post"}), 500
-        
+
         logger.info(f"Post created by {username} with ID: {post_id}")
-        return jsonify({"message": "Post created successfully", "post_id": post_id}), 201
-    
+        return (
+            jsonify({"message": "Post created successfully", "post_id": post_id}),
+            201,
+        )
+
     def upvote_post(self):
         """Handle upvoting a post (one per user)"""
         token = request.headers.get("Authorization")
@@ -202,11 +204,11 @@ class RSSXApi:
         payload = self.security.verify_jwt(token)
         if not payload:
             return jsonify({"error": "Invalid or expired token"}), 401
-        username = payload.get('username')
+        username = payload.get("username")
         data = request.json
         if not data:
             return jsonify({"error": "No data provided"}), 400
-        post_id = data.get('post_id')
+        post_id = data.get("post_id")
         if not post_id:
             return jsonify({"error": "post_id is required"}), 400
         success = self.db.upvote_post(post_id, username)
@@ -214,7 +216,12 @@ class RSSXApi:
         if success:
             return jsonify({"message": "Post upvoted successfully"}), 200
         else:
-            return jsonify({"error": "You have already upvoted this post or error occurred"}), 400
+            return (
+                jsonify(
+                    {"error": "You have already upvoted this post or error occurred"}
+                ),
+                400,
+            )
 
     def downvote_post(self):
         """Handle downvoting a post (one per user)"""
@@ -225,11 +232,11 @@ class RSSXApi:
         payload = self.security.verify_jwt(token)
         if not payload:
             return jsonify({"error": "Invalid or expired token"}), 401
-        username = payload.get('username')
+        username = payload.get("username")
         data = request.json
         if not data:
             return jsonify({"error": "No data provided"}), 400
-        post_id = data.get('post_id')
+        post_id = data.get("post_id")
         if not post_id:
             return jsonify({"error": "post_id is required"}), 400
         success = self.db.downvote_post(post_id, username)
@@ -237,7 +244,12 @@ class RSSXApi:
         if success:
             return jsonify({"message": "Post downvoted successfully"}), 200
         else:
-            return jsonify({"error": "You have already downvoted this post or error occurred"}), 400
+            return (
+                jsonify(
+                    {"error": "You have already downvoted this post or error occurred"}
+                ),
+                400,
+            )
 
     def get_feed(self):
         """Get all posts sorted by author popularity and upvotes, including comments"""
@@ -266,12 +278,12 @@ class RSSXApi:
             comment['timestamp_formatted'] = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(comment['timestamp']))
         post['comments'] = comments
         return jsonify({"post": post}), 200
-    
+
     def list_servers(self):
         """List all connected servers"""
         servers = self.db.get_all_servers()
         return jsonify({"connected_servers": servers}), 200
-    
+
     def add_server(self):
         """Add a new server to the connected servers list"""
         # Inline authentication
@@ -282,40 +294,40 @@ class RSSXApi:
         payload = self.security.verify_jwt(token)
         if not payload:
             return jsonify({"error": "Invalid or expired token"}), 401
-        
+
         data = request.json
         if not data:
             return jsonify({"error": "No data provided"}), 400
-        
-        server_url = data.get('server_url')
+
+        server_url = data.get("server_url")
         if not server_url:
             return jsonify({"error": "Missing server_url"}), 400
-        
+
         # Add server to database
         success = self.db.add_server(server_url)
         if not success:
             return jsonify({"error": "Server already connected or failed to add"}), 400
-        
+
         logger.info(f"New server added: {server_url}")
         return jsonify({"message": f"Server {server_url} added successfully"}), 201
-    
+
     def register_ip(self):
         """Register IP address with username (for P2P)"""
         data = request.json
         if not data:
             return jsonify({"error": "No data provided"}), 400
-        
-        username = data.get('username')
+
+        username = data.get("username")
         if not username:
             return jsonify({"error": "Missing username"}), 400
-        
+
         # In a real implementation, this would store the IP-username mapping
         # For now, we just acknowledge the request
         client_ip = request.remote_addr
         logger.info(f"IP {client_ip} registered for username: {username}")
-        
+
         return jsonify({"message": f"IP registered for {username}"}), 200
-    
+
     def get_profile(self):
         """Get user profile information"""
         # Inline authentication
@@ -326,67 +338,67 @@ class RSSXApi:
         payload = self.security.verify_jwt(token)
         if not payload:
             return jsonify({"error": "Invalid or expired token"}), 401
-        username = payload.get('username')
-        
+        username = payload.get("username")
+
         user = self.db.get_user(username)
         if not user:
             return jsonify({"error": "User not found"}), 404
-        
+
         # Don't return the password hash
         profile = {
             "username": user["username"],
             # You could add more profile fields here
         }
-        
+
         return jsonify({"profile": profile}), 200
-    
+
     def health_check(self):
         """Health check endpoint"""
-        return jsonify({
-            "status": "ok",
-            "timestamp": int(time.time())
-        }), 200
+        return jsonify({"status": "ok", "timestamp": int(time.time())}), 200
+
 
 def create_app(config=None):
     """Create and configure the Flask application"""
     if config is None:
         config = Config()
-    
+
     # Ensure all directories exist
     config.ensure_directories()
-    
+
     # Set up logging
     logger = setup_logging(config)
     logger.info("Starting RSSX Server")
-    
+
     # Initialize database
     db = Database(config.get("DB_PATH"))
-    logger.info(f"Database initialized at {config.get("DB_PATH")}")
-    
+    logger.info(f"Database initialized at {config.get('DB_PATH')}")
+
     # Initialize security
     security = Security(config.config)
     logger.info("Security module initialized")
-    
+
     # Create Flask app
-    app = Flask(__name__, 
-                template_folder=config.get("WEB_TEMPLATE_DIR"),
-                static_folder=config.get("WEB_STATIC_DIR"))
-    
+    app = Flask(
+        __name__,
+        template_folder=config.get("WEB_TEMPLATE_DIR"),
+        static_folder=config.get("WEB_STATIC_DIR"),
+    )
+
     app.config["SECRET_KEY"] = config.get("JWT_SECRET_KEY")
     app.config["SESSION_TYPE"] = "filesystem"
-    
+
     # Initialize API
     api = RSSXApi(db, security)
-    app.register_blueprint(api.api, url_prefix='/api')
+    app.register_blueprint(api.api, url_prefix="/api")
     logger.info("API registered at /api")
-    
+
     # Initialize Web UI if enabled
     if config.get("ENABLE_WEB_UI"):
         web_ui = WebUI(db, security, config)
-        app.register_blueprint(web_ui.web, url_prefix='/')
+        app.register_blueprint(web_ui.web, url_prefix="/")
         logger.info("Web UI registered at /")
-    
-    @app.route('/')
+
+    @app.route("/")
     def index():
         if config.get("ENABLE_WEB_UI"):
             # Render feed.html and supply the JWT token from session (if available)
@@ -396,23 +408,24 @@ def create_app(config=None):
                 "status": "ok",
                 "message": "RSSX API Server",
                 "api_endpoints": [
-                    "/api/register", 
-                    "/api/login", 
+                    "/api/register",
+                    "/api/login",
                     "/api/feed",
                     "/api/post",
                     "/api/list_servers",
                     "/api/add_server",
-                    "/api/health"
-                ]
+                    "/api/health",
+                ],
             }
-    
+
     return app, db, security, config
 
-def run_server(config=None, host="0.0.0.0", port=5000, debug=False):
+
+def run_server(config=None, host="0.0.0.0", port=5000, debug=True):
     """Run the RSSX server"""
     # Create application
     app, db, security, config = create_app(config)
-    
+
     # Use command-line values if provided, otherwise use config
     if host:
         config.set("HOST", host)
@@ -421,52 +434,63 @@ def run_server(config=None, host="0.0.0.0", port=5000, debug=False):
     if debug is not None:
         config.set("DEBUG", debug)
     # Start the server
-    app.run(host=config.get("HOST"), port=int(config.get("PORT")), debug=config.get("DEBUG"))
+    app.run(
+        host=config.get("HOST"), port=int(config.get("PORT")), debug=config.get("DEBUG")
+    )
+
 
 def run_tkinter_ui(config=None):
     """Run the Tkinter UI client"""
     # Import here to avoid dependency if not used
     try:
         from rssx.ui.tkinter.tkinter_client import launch_tkinter_ui
-        
+
         # If no config provided, create one
         if config is None:
             config = Config()
-        
+
         # Launch Tkinter UI
         launch_tkinter_ui(config)
     except ImportError as e:
         print(f"Error importing Tkinter UI: {str(e)}")
         print("Make sure you have tkinter installed or re-install the application.")
 
+
 def main():
     """Main entry point for the application"""
     # Parse command-line arguments
-    parser = argparse.ArgumentParser(description="RSSX Distributed Social Media Platform")
+    parser = argparse.ArgumentParser(
+        description="RSSX Distributed Social Media Platform"
+    )
     parser.add_argument("--config", help="Path to configuration file")
     parser.add_argument("--host", help="Host address to bind to")
     parser.add_argument("--port", type=int, help="Port to listen on")
     parser.add_argument("--debug", action="store_true", help="Enable debug mode")
     parser.add_argument("--no-web-ui", action="store_true", help="Disable web UI")
-    parser.add_argument("--client", choices=["tui", "gui", "web"], help="Run a client interface")
-    parser.add_argument("--db", help="Path to database file (will be created if it doesn't exist)")
-    
+    parser.add_argument(
+        "--client", choices=["tui", "gui", "web"], help="Run a client interface"
+    )
+    parser.add_argument(
+        "--db", help="Path to database file (will be created if it doesn't exist)"
+    )
+
     args = parser.parse_args()
-    
+
     # Load configuration
     config = Config(args.config if args.config else "config.json")
     if args.db:
         config.set("DB_PATH", args.db)
-    
+
     # Apply command-line overrides
     if args.no_web_ui:
         config.set("ENABLE_WEB_UI", False)
-    
+
     if args.client:
         if args.client == "tui":
             # Import and run TUI client
             try:
                 from client_tui import menu
+
                 menu()
             except ImportError:
                 print("TUI client not available")
@@ -475,11 +499,14 @@ def main():
             run_tkinter_ui(config)
         elif args.client == "web":
             # Just inform that web UI is accessible via browser
-            print(f"Web UI available at http://{config.get('HOST')}:{config.get('PORT')}/")
+            print(
+                f"Web UI available at http://{config.get('HOST')}:{config.get('PORT')}/"
+            )
             run_server(config, args.host, args.port, args.debug)
     else:
         # Run the server by default
         run_server(config, args.host, args.port, args.debug)
+
 
 if __name__ == "__main__":
     main()
