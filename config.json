@@ -1,6 +1,6 @@
 {
     "HOST": "0.0.0.0",
-    "PORT": 5001,
+    "PORT": 5000,
     "DEBUG": false,
     "JWT_SECRET_KEY": "your_secret_key",
     "PUBLIC_KEY_FILE": "rsa_public.pem",

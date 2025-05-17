@@ -69,7 +69,12 @@ class WebUI:
         """Display the post feed"""
         posts_raw = self.db.get_all_posts()
         posts = self._get_formatted_posts(posts_raw)
-        
+        # Attach comments to each post
+        for post in posts:
+            comments = self.db.get_comments_for_post(post['id'])
+            for comment in comments:
+                comment['timestamp_formatted'] = datetime.fromtimestamp(comment['timestamp']).strftime('%Y-%m-%d %H:%M:%S')
+            post['comments'] = comments
         return render_template('feed.html', 
                                current_user=self.current_user,
                                posts=posts,
