@@ -344,6 +344,21 @@ class Database:
             logger.error(f"Database error in save_comment: {str(e)}")
             return None
 
+    def get_comments_for_post(self, post_id):
+        """Get all comments for a given post_id, sorted by timestamp ascending"""
+        try:
+            conn = sqlite3.connect(self.db_path)
+            conn.row_factory = sqlite3.Row
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM comments WHERE post_id = ? ORDER BY timestamp ASC", (post_id,))
+            rows = cursor.fetchall()
+            comments = [dict(row) for row in rows]
+            conn.close()
+            return comments
+        except sqlite3.Error as e:
+            logger.error(f"Database error in get_comments_for_post: {str(e)}")
+            return []
+
     def update_post(self, post_id, new_content):
         """Update the content of an existing post"""
         try:

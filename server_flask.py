@@ -8,7 +8,6 @@ from rssx.security.crypto import Security
 from rssx.ui.web.web_controller import WebUI
 from flask import Blueprint, request, jsonify
 import time
-import datetime
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +46,7 @@ class RSSXApi:
         self.api.route('/comment', methods=['POST'])(self.create_comment)
 
     def create_comment(self):
-        """Create a new comment on a post and append it to the original post content"""
+        """Create a new comment on a post"""
         # Inline authentication
         token = request.headers.get("Authorization")
         if not token or not token.startswith("Bearer "):
@@ -86,28 +85,8 @@ class RSSXApi:
             logger.error(f"Failed to save comment for user: {username}")
             return jsonify({"error": "Failed to save comment"}), 500
 
-        # Retrieve the original post
-        original_post = self.db.get_post_by_id(post_id)
-        if not original_post:
-            logger.error(f"Original post with ID {post_id} not found")
-            return jsonify({"error": "Original post not found"}), 404
-
-        # Create a separator including a link to the original post and a timestamp.
-        timestamp_str = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        separator = (
-            f"\n\n========== INFO - Original Post ID: {post_id} | {timestamp_str} | User: {username} ==========\n"
-        )
-        
-        # Append the comment to the original post content.
-        new_content = original_post["content"] + separator + f"{content}"
-
-        update_success = self.db.update_post(post_id, new_content)
-        if not update_success:
-            logger.error(f"Failed to update post {post_id} with new comment")
-            return jsonify({"error": "Failed to update post with comment"}), 500
-
-        logger.info(f"Comment created by {username} with ID: {comment_id} and appended to post {post_id}")
-        return jsonify({"message": "Comment created and appended successfully", "comment_id": comment_id}), 201
+        logger.info(f"Comment created by {username} with ID: {comment_id} for post {post_id}")
+        return jsonify({"message": "Comment created successfully", "comment_id": comment_id}), 201
 
     def register(self):
         """Register a new user"""
@@ -261,23 +240,31 @@ class RSSXApi:
             return jsonify({"error": "You have already downvoted this post or error occurred"}), 400
 
     def get_feed(self):
-        """Get all posts sorted by author popularity and upvotes"""
+        """Get all posts sorted by author popularity and upvotes, including comments"""
         posts = self.db.get_all_posts()
-
         # Sort posts by author popularity and upvotes
         posts.sort(key=lambda post: (
             self.db.get_user(post['author']).get('popularity', 0),
             post.get('upvotes', 0)
         ), reverse=True)
-
+        # Attach comments to each post
+        for post in posts:
+            comments = self.db.get_comments_for_post(post['id'])
+            # Format timestamp for comments
+            for comment in comments:
+                comment['timestamp_formatted'] = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(comment['timestamp']))
+            post['comments'] = comments
         return jsonify({"posts": posts}), 200
-    
+
     def get_post(self, post_id):
-        """Get a specific post by ID"""
+        """Get a specific post by ID, including comments"""
         post = self.db.get_post_by_id(post_id)
         if not post:
             return jsonify({"error": "Post not found"}), 404
-        
+        comments = self.db.get_comments_for_post(post_id)
+        for comment in comments:
+            comment['timestamp_formatted'] = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(comment['timestamp']))
+        post['comments'] = comments
         return jsonify({"post": post}), 200
     
     def list_servers(self):
