@@ -95,6 +95,9 @@ class Database:
                 cursor = conn.cursor()
 
                 for username, password in users.items():
+                    # If password is a list or dict, serialize to JSON string
+                    if isinstance(password, (list, dict)):
+                        password = json.dumps(password)
                     cursor.execute(
                         "INSERT OR IGNORE INTO users (username, password, created_at) VALUES (?, ?, ?)",
                         (username, password, int(time.time())),
@@ -217,23 +220,35 @@ class Database:
             return False
 
     def save_post(self, post_data):
-        """Save a new post"""
+        """Save a new post, supporting federated_from for federated posts"""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
 
-            post_id = post_data.get("id", str(int(time.time())))
+            # Add federated_from column if not present
+            try:
+                cursor.execute("ALTER TABLE posts ADD COLUMN federated_from TEXT")
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e):
+                    logger.error(f"Error adding federated_from column: {str(e)}")
 
-            cursor.execute(
-                "INSERT INTO posts (id, author, content, timestamp, signature) VALUES (?, ?, ?, ?, ?)",
-                (
-                    post_id,
-                    post_data["author"],
-                    post_data["content"],
-                    post_data["timestamp"],
-                    post_data["signature"],
-                ),
-            )
+            post_id = post_data.get("id", str(int(time.time())))
+            author = post_data["author"]
+            content = post_data["content"]
+            timestamp = post_data["timestamp"]
+            signature = post_data["signature"]
+            federated_from = post_data.get("federated_from")
+
+            if federated_from:
+                cursor.execute(
+                    "INSERT INTO posts (id, author, content, timestamp, signature, federated_from) VALUES (?, ?, ?, ?, ?, ?)",
+                    (post_id, author, content, timestamp, signature, federated_from),
+                )
+            else:
+                cursor.execute(
+                    "INSERT INTO posts (id, author, content, timestamp, signature) VALUES (?, ?, ?, ?, ?)",
+                    (post_id, author, content, timestamp, signature),
+                )
 
             conn.commit()
             conn.close()
@@ -477,8 +492,7 @@ class Database:
                     (post_id, username),
                 )
                 cursor.execute(
-                    "UPDATE posts SET downvotes = downvotes + 1 WHERE id = ?",
-                    (post_id,),
+                    "UPDATE posts SET downvotes = downvotes + 1 WHERE id = ?", (post_id,),
                 )
             conn.commit()
             conn.close()

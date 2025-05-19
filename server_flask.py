@@ -8,9 +8,19 @@ from rssx.security.crypto import Security
 from rssx.ui.web.web_controller import WebUI
 from flask import Blueprint, request, jsonify
 import time
+from collections import defaultdict, deque
+from flask_cors import CORS
 
 logger = logging.getLogger(__name__)
 
+# In-memory throttling and spam filter state
+THROTTLE_LIMIT = 5  # max requests per user per minute
+THROTTLE_WINDOW = 60  # seconds
+BLACKLISTED_WORDS = []
+user_post_times = defaultdict(lambda: deque(maxlen=THROTTLE_LIMIT))
+user_comment_times = defaultdict(lambda: deque(maxlen=THROTTLE_LIMIT))
+user_last_post_content = {}
+user_last_comment_content = {}
 
 class RSSXApi:
     def __init__(self, database, security):
@@ -46,8 +56,14 @@ class RSSXApi:
         # Comment to post route
         self.api.route("/comment", methods=["POST"])(self.create_comment)
 
+        # Public key route
+        self.api.route('/public_key', methods=['GET'])(self.get_public_key)
+
+        # Federated post route
+        self.api.route('/receive_post', methods=['POST'])(self.receive_post)
+
     def create_comment(self):
-        """Create a new comment on a post"""
+        """Create a new comment on a post with spam filter and throttling"""
         # Inline authentication
         token = request.headers.get("Authorization")
         if not token or not token.startswith("Bearer "):
@@ -66,6 +82,23 @@ class RSSXApi:
         post_id = data.get("post_id")
         if not content or not post_id:
             return jsonify({"error": "Content and post_id are required"}), 400
+
+        # Throttling: block if too many comments in window
+        now = time.time()
+        times = user_comment_times[username]
+        times.append(now)
+        if len(times) == THROTTLE_LIMIT and now - times[0] < THROTTLE_WINDOW:
+            return jsonify({"error": "Too many comments, slow down!"}), 429
+
+        # Block repeated content
+        if user_last_comment_content.get(username) == content:
+            return jsonify({"error": "Duplicate comment detected"}), 400
+        user_last_comment_content[username] = content
+
+        # Spam filter: block blacklisted words
+        for word in BLACKLISTED_WORDS:
+            if word.lower() in content.lower():
+                return jsonify({"error": f"Spam detected: '{word}' is not allowed"}), 400
 
         # Create comment data
         timestamp = int(time.time())
@@ -154,7 +187,7 @@ class RSSXApi:
         return jsonify({"token": token}), 200
 
     def create_post(self):
-        """Create a new post"""
+        """Create a new post with spam filter and throttling"""
         # Inline authentication
         token = request.headers.get("Authorization")
         if not token or not token.startswith("Bearer "):
@@ -172,6 +205,23 @@ class RSSXApi:
         content = data.get("content")
         if not content:
             return jsonify({"error": "Content is required"}), 400
+
+        # Throttling: block if too many posts in window
+        now = time.time()
+        times = user_post_times[username]
+        times.append(now)
+        if len(times) == THROTTLE_LIMIT and now - times[0] < THROTTLE_WINDOW:
+            return jsonify({"error": "Too many posts, slow down!"}), 429
+
+        # Block repeated content
+        if user_last_post_content.get(username) == content:
+            return jsonify({"error": "Duplicate post detected"}), 400
+        user_last_post_content[username] = content
+
+        # Spam filter: block blacklisted words
+        for word in BLACKLISTED_WORDS:
+            if word.lower() in content.lower():
+                return jsonify({"error": f"Spam detected: '{word}' is not allowed"}), 400
 
         # Create post data
         timestamp = int(time.time())
@@ -356,6 +406,56 @@ class RSSXApi:
         """Health check endpoint"""
         return jsonify({"status": "ok", "timestamp": int(time.time())}), 200
 
+    def get_public_key(self):
+        """Expose the server's public key in PEM format for federation encryption"""
+        from cryptography.hazmat.primitives import serialization
+        pem = self.security.public_key.public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo
+        ).decode()
+        return jsonify({"public_key": pem})
+
+    def receive_post(self):
+        """Receive a federated post encrypted for this server"""
+        data = request.json
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        # Required fields: author, timestamp, content (encrypted), signature, federated_from
+        author = data.get("author")
+        timestamp = data.get("timestamp")
+        content = data.get("content")
+        signature = data.get("signature")
+        federated_from = data.get("federated_from")
+        if not all([author, timestamp, content, signature, federated_from]):
+            return jsonify({"error": "Missing required fields"}), 400
+        # Decrypt the content with the server's private key (less secure, not E2E)
+        try:
+            from base64 import b64decode
+            logger.info(f"Attempting to decrypt federated post from {federated_from} with content: {content[:40]}...")
+            decrypted_bytes = self.security.private_key.decrypt(
+                b64decode(content),
+                self.security._get_rsa_padding()
+            )
+            plaintext_content = decrypted_bytes.decode('utf-8')
+            logger.info(f"Decryption successful. Plaintext: {plaintext_content[:40]}...")
+        except Exception as e:
+            logger.error(f"Failed to decrypt federated post: {e}")
+            return jsonify({"error": "Failed to decrypt federated post"}), 400
+        # Save as a post, mark as federated (e.g., add a federated_from field or flag)
+        post_data = {
+            "author": author,
+            "timestamp": timestamp,
+            "content": plaintext_content,
+            "signature": signature,
+            "federated_from": federated_from
+        }
+        post_id = self.db.save_post(post_data)
+        if not post_id:
+            logger.error(f"Failed to save federated post from {federated_from}")
+            return jsonify({"error": "Failed to save federated post"}), 500
+        logger.info(f"Federated post received from {federated_from} with ID: {post_id}")
+        return jsonify({"message": "Federated post received", "post_id": post_id}), 201
+
 
 def create_app(config=None):
     """Create and configure the Flask application"""
@@ -383,21 +483,11 @@ def create_app(config=None):
         template_folder=config.get("WEB_TEMPLATE_DIR"),
         static_folder=config.get("WEB_STATIC_DIR"),
     )
-
+    CORS(app)
     app.config["SECRET_KEY"] = config.get("JWT_SECRET_KEY")
     app.config["SESSION_TYPE"] = "filesystem"
 
-    # Initialize API
-    api = RSSXApi(db, security)
-    app.register_blueprint(api.api, url_prefix="/api")
-    logger.info("API registered at /api")
-
-    # Initialize Web UI if enabled
-    if config.get("ENABLE_WEB_UI"):
-        web_ui = WebUI(db, security, config)
-        app.register_blueprint(web_ui.web, url_prefix="/")
-        logger.info("Web UI registered at /")
-
+    # Register index route here, after app is defined
     @app.route("/")
     def index():
         if config.get("ENABLE_WEB_UI"):
@@ -418,13 +508,23 @@ def create_app(config=None):
                 ],
             }
 
-    return app, db, security, config
+    # Initialize API
+    api = RSSXApi(db, security)
+    app.register_blueprint(api.api, url_prefix="/api")
+    logger.info("API registered at /api")
+
+    # Initialize Web UI if enabled
+    if config.get("ENABLE_WEB_UI"):
+        web_ui = WebUI(db, security, config)
+        app.register_blueprint(web_ui.web, url_prefix="/")
+        logger.info("Web UI registered at /")
+    return app
 
 
 def run_server(config=None, host="0.0.0.0", port=5000, debug=True):
     """Run the RSSX server"""
     # Create application
-    app, db, security, config = create_app(config)
+    app = create_app(config)  # Only get 'app' here
 
     # Use command-line values if provided, otherwise use config
     if host:
@@ -437,7 +537,6 @@ def run_server(config=None, host="0.0.0.0", port=5000, debug=True):
     app.run(
         host=config.get("HOST"), port=int(config.get("PORT")), debug=config.get("DEBUG")
     )
-
 
 def run_tkinter_ui(config=None):
     """Run the Tkinter UI client"""

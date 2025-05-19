@@ -226,12 +226,14 @@
         const encrypted = await window.crypto.subtle.encrypt({name:'RSA-OAEP'}, publicKey, enc);
         return btoa(String.fromCharCode(...new Uint8Array(encrypted)));
     }
-    async function decryptText(base64, privateKey) {
+    async function decryptText(base64, privateKey, isFederated = false) {
         try {
             const data = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
             const decrypted = await window.crypto.subtle.decrypt({name:'RSA-OAEP'}, privateKey, data);
             return new TextDecoder().decode(decrypted);
-        } catch (e) { return '[Encrypted]'; }
+        } catch (e) {
+            return isFederated ? '[Provided from another server: cannot decrypt]' : '[Encrypted]';
+        }
     }
 
     // --- Encrypt post before sending ---
@@ -243,8 +245,16 @@
                 const textarea = postForm.querySelector('textarea[name="content"]');
                 const keyPair = await getKeyPair();
                 const encrypted = await encryptText(textarea.value, keyPair.publicKey);
-                textarea.value = encrypted;
+                const postData = {
+                    author: '{{ current_user }}',
+                    timestamp: Math.floor(Date.now() / 1000),
+                    content: textarea.value
+                };
+                // Locally encrypt and submit
+                textarea.value = textarea.value; // Do NOT encrypt for local post, just submit plaintext
                 postForm.submit();
+                // After a short delay, federate to other servers
+                setTimeout(() => federatePostToServers(postData), 2000);
             });
         }
     });
@@ -270,77 +280,116 @@
     }
 
     // --- Decrypt posts/comments on page load ---
-    document.addEventListener('DOMContentLoaded', async function() {
-        const keyPair = await getKeyPair();
-        // Decrypt posts
-        document.querySelectorAll('.card-text.mb-1').forEach(async function(el) {
-            const encrypted = el.textContent;
-            const decrypted = await decryptText(encrypted, keyPair.privateKey);
-            el.textContent = decrypted;
-        });
-        // Decrypt comments
-        document.querySelectorAll('.comment-item').forEach(async function(li) {
-            const span = li.querySelector('span:not(.comment-author)');
-            if (span) {
-                const encrypted = span.textContent.replace(/^: /, '');
-                const decrypted = await decryptText(encrypted, keyPair.privateKey);
-                span.textContent = ': ' + decrypted;
-            }
-        });
-    });
+    // (DISABLED: federated posts are now stored as plaintext)
+    // document.addEventListener('DOMContentLoaded', async function() {
+    //     const keyPair = await getKeyPair();
+    //     // Decrypt posts
+    //     document.querySelectorAll('.card-text.mb-1').forEach(async function(el) {
+    //         const encrypted = el.textContent;
+    //         // If this is a federated post, show federated message if cannot decrypt
+    //         const isFederated = el.closest('.reddit-post-body')?.innerHTML.includes('Federated');
+    //         const decrypted = await decryptText(encrypted, keyPair.privateKey, isFederated);
+    //         el.textContent = decrypted;
+    //     });
+    //     // Decrypt comments
+    //     document.querySelectorAll('.comment-item').forEach(async function(li) {
+    //         const span = li.querySelector('span:not(.comment-author)');
+    //         if (span) {
+    //             const encrypted = span.textContent.replace(/^: /, '');
+    //             const isFederated = li.closest('.reddit-post-body')?.innerHTML.includes('Federated');
+    //             const decrypted = await decryptText(encrypted, keyPair.privateKey, isFederated);
+    //             span.textContent = ': ' + decrypted;
+    //         }
+    //     });
+    // });
 
-    // --- Federation: Fetch posts from other servers and merge into feed ---
-    const federatedServers = [
-        // Add more server URLs as needed
-        'https://example-remote-server.com',
-        // 'https://another-server.com',
-    ];
-
-    async function fetchFederatedPosts() {
-        for (const server of federatedServers) {
+    // --- Federation: Fetch and cache public keys for federated servers ---
+    const federatedPublicKeys = {};
+    async function fetchFederatedPublicKey(server) {
+        for (const proto of ['http://', 'https://']) {
+            let url = server;
+            if (!/^https?:\/\//.test(server)) url = proto + server.replace(/^\/*/, '');
             try {
-                const res = await fetch(server + '/api/feed');
+                const res = await fetch(url + '/api/public_key');
                 if (!res.ok) continue;
                 const data = await res.json();
-                // Assume data.posts is an array of post objects similar to your own
-                data.posts.forEach(post => {
-                    // Create a post element and append to #posts-container
-                    const postDiv = document.createElement('div');
-                    postDiv.className = 'reddit-post';
-                    postDiv.innerHTML = `
-                        <div class="vote-column">
-                            <span class="vote-btn upvote" style="opacity:0.5">&#8679;</span>
-                            <div class="vote-count">?</div>
-                            <span class="vote-btn downvote" style="opacity:0.5">&#8681;</span>
-                        </div>
-                        <div class="reddit-post-body">
-                            <div class="d-flex justify-content-between align-items-center mb-2">
-                                <span>
-                                    <span class="fw-bold">${post.author || 'Remote'}</span>
-                                    <span class="badge bg-secondary ms-2">Federated</span>
-                                </span>
-                                <small class="text-muted">${post.timestamp_formatted || ''}</small>
+                if (data.public_key) {
+                    federatedPublicKeys[server] = data.public_key;
+                    break;
+                }
+            } catch (e) { /* try next proto */ }
+        }
+    }
+
+    // --- Federation: Fetch posts from other servers and merge into feed ---
+    let federatedServers = [];
+    async function fetchFederatedServers() {
+        try {
+            const res = await fetch('/api/list_servers');
+            if (!res.ok) return;
+            const data = await res.json();
+            if (data.connected_servers) {
+                federatedServers = data.connected_servers;
+            }
+        } catch (e) {
+            // Ignore errors
+        }
+    }
+
+    async function fetchFederatedPosts() {
+        await fetchFederatedServers();
+        for (const server of federatedServers) {
+            await fetchFederatedPublicKey(server);
+            let tried = false;
+            for (const proto of ['http://', 'https://']) {
+                let url = server;
+                if (!/^https?:\/\//.test(server)) url = proto + server.replace(/^\/*/, '');
+                try {
+                    const res = await fetch(url + '/api/feed');
+                    if (!res.ok) continue;
+                    const data = await res.json();
+                    data.posts.forEach(post => {
+                        const postDiv = document.createElement('div');
+                        postDiv.className = 'reddit-post';
+                        postDiv.innerHTML = `
+                            <div class="vote-column">
+                                <span class="vote-btn upvote" style="opacity:0.5">&#8679;</span>
+                                <div class="vote-count">?</div>
+                                <span class="vote-btn downvote" style="opacity:0.5">&#8681;</span>
                             </div>
-                            <div class="mb-2">
-                                <p class="card-text mb-1" style="white-space:pre-line;">${post.content}</p>
+                            <div class="reddit-post-body">
+                                <div class="d-flex justify-content-between align-items-center mb-2">
+                                    <span>
+                                        <span class="fw-bold">${post.author || 'Remote'}</span>
+                                        <span class="badge bg-secondary ms-2">Federated</span>
+                                    </span>
+                                    <small class="text-muted">${post.timestamp_formatted || ''}</small>
+                                </div>
+                                <div class="mb-2">
+                                    <p class="card-text mb-1" style="white-space:pre-line;">${post.content}</p>
+                                </div>
+                                <div class="d-flex justify-content-between align-items-center">
+                                    <small class="text-muted">ID: ${post.id || ''}</small>
+                                </div>
                             </div>
-                            <div class="d-flex justify-content-between align-items-center">
-                                <small class="text-muted">ID: ${post.id || ''}</small>
-                            </div>
-                        </div>
-                    `;
-                    document.getElementById('posts-container').appendChild(postDiv);
-                });
-            } catch (e) {
-                // Ignore errors for unreachable servers
+
+
+                            
+                        `;
+                        document.getElementById('posts-container').appendChild(postDiv);
+                    });
+                    tried = true;
+                    break;
+                } catch (e) {
+                    // Try next proto
+                }
+            }
+            if (!tried) {
+                // Optionally, show a warning for unreachable server
             }
         }
     }
     document.addEventListener('DOMContentLoaded', fetchFederatedPosts);
-
-    // --- Federation placeholder ---
-    // In a real decentralized system, you would fetch posts from other servers here
-    // Example: fetch('https://other-server.example.com/api/feed')
 
     function downvotePost(postId) {
         fetch('/api/downvote', {
@@ -387,5 +436,51 @@
             });
         }
     });
+
+    // --- Federate post to other servers after local creation ---
+    async function federatePostToServers(postData) {
+        await fetchFederatedServers();
+        for (const server of federatedServers) {
+            await fetchFederatedPublicKey(server);
+            const pubKeyPem = federatedPublicKeys[server];
+            if (!pubKeyPem) continue;
+            // Import PEM public key
+            try {
+                // Convert PEM to ArrayBuffer
+                const pemHeader = "-----BEGIN PUBLIC KEY-----";
+                const pemFooter = "-----END PUBLIC KEY-----";
+                let pemContents = pubKeyPem.replace(pemHeader, '').replace(pemFooter, '').replace(/\s/g, '');
+                const binaryDer = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
+                const importedKey = await window.crypto.subtle.importKey(
+                    'spki',
+                    binaryDer.buffer,
+                    { name: 'RSA-OAEP', hash: 'SHA-256' },
+                    false,
+                    ['encrypt']
+                );
+                // Encrypt content for this server
+                const encryptedContent = await encryptText(postData.content, importedKey);
+                // Send to remote server
+                for (const proto of ['http://', 'https://']) {
+                    let url = server;
+                    if (!/^https?:\/\//.test(server)) url = proto + server.replace(/^\/*/, '');
+                    try {
+                        await fetch(url + '/api/receive_post', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                author: postData.author,
+                                timestamp: postData.timestamp,
+                                content: encryptedContent,
+                                signature: postData.signature,
+                                federated_from: window.location.origin
+                            })
+                        });
+                        break;
+                    } catch (e) { /* try next proto */ }
+                }
+            } catch (e) { /* skip this server */ }
+        }
+    }
 </script>
 {% endblock %}

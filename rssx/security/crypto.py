@@ -157,3 +157,13 @@ class Security:
         except Exception as e:
             logger.error(f"Error verifying signature: {str(e)}")
             return False
+    
+    def _get_rsa_padding(self):
+        """Return the RSA OAEP padding used for encryption/decryption"""
+        from cryptography.hazmat.primitives.asymmetric import padding
+        from cryptography.hazmat.primitives import hashes
+        return padding.OAEP(
+            mgf=padding.MGF1(algorithm=hashes.SHA256()),
+            algorithm=hashes.SHA256(),
+            label=None
+        )
