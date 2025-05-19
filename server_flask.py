@@ -62,6 +62,77 @@ class RSSXApi:
         # Federated post route
         self.api.route('/receive_post', methods=['POST'])(self.receive_post)
 
+        # Federated comment receive endpoint
+        self.api.route('/receive_comment', methods=['POST'])(self.receive_comment)
+
+        # Federated vote receive endpoint
+        self.api.route('/receive_vote', methods=['POST'])(self.receive_vote)
+
+    def receive_comment(self):
+        """Receive a federated comment encrypted for this server"""
+        data = request.json
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        # Required fields: author, timestamp, content (encrypted), signature, post_id, federated_from
+        author = data.get("author")
+        timestamp = data.get("timestamp")
+        content = data.get("content")
+        signature = data.get("signature")
+        post_id = data.get("post_id")
+        federated_from = data.get("federated_from")
+        if not all([author, timestamp, content, signature, post_id, federated_from]):
+            return jsonify({"error": "Missing required fields"}), 400
+        # Decrypt the content with the server's private key (if encrypted)
+        try:
+            from base64 import b64decode
+            logger.info(f"Attempting to decrypt federated comment from {federated_from} with content: {content[:40]}...")
+            decrypted_bytes = self.security.private_key.decrypt(
+                b64decode(content),
+                self.security._get_rsa_padding()
+            )
+            plaintext_content = decrypted_bytes.decode('utf-8')
+            logger.info(f"Decryption successful. Plaintext: {plaintext_content[:40]}...")
+        except Exception as e:
+            logger.error(f"Failed to decrypt federated comment: {e}")
+            return jsonify({"error": "Failed to decrypt federated comment"}), 400
+        # Save as a comment, mark as federated
+        comment_data = {
+            "author": author,
+            "timestamp": timestamp,
+            "content": plaintext_content,
+            "post_id": post_id,
+            "signature": signature,
+            "federated_from": federated_from
+        }
+        comment_id = self.db.save_comment(comment_data)
+        if not comment_id:
+            logger.error(f"Failed to save federated comment from {federated_from}")
+            return jsonify({"error": "Failed to save federated comment"}), 500
+        logger.info(f"Federated comment received from {federated_from} for post {post_id}")
+        return jsonify({"message": "Federated comment received", "comment_id": comment_id}), 201
+
+    def receive_vote(self):
+        """Receive a federated upvote/downvote for a post from another server"""
+        data = request.json
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+        post_id = data.get("post_id")
+        vote_type = data.get("vote_type")  # 'upvote' or 'downvote'
+        voter = data.get("voter")  # user@server
+        if not all([post_id, vote_type, voter]):
+            return jsonify({"error": "Missing required fields"}), 400
+        # Use voter as username for uniqueness
+        if vote_type == 'upvote':
+            success = self.db.upvote_post(post_id, voter)
+        elif vote_type == 'downvote':
+            success = self.db.downvote_post(post_id, voter)
+        else:
+            return jsonify({"error": "Invalid vote_type"}), 400
+        if success:
+            return jsonify({"message": f"{vote_type} registered"}), 200
+        else:
+            return jsonify({"error": f"Failed to register {vote_type}"}), 400
+
     def create_comment(self):
         """Create a new comment on a post with spam filter and throttling"""
         # Inline authentication
@@ -80,6 +151,7 @@ class RSSXApi:
 
         content = data.get("content")
         post_id = data.get("post_id")
+        federated_from = data.get("federated_from")
         if not content or not post_id:
             return jsonify({"error": "Content and post_id are required"}), 400
 
@@ -108,6 +180,8 @@ class RSSXApi:
             "content": content,
             "post_id": post_id,
         }
+        if federated_from:
+            comment_data["federated_from"] = federated_from
 
         # Sign the comment data
         signature_data = f"{comment_data['timestamp']}{comment_data['author']}{comment_data['content']}"
@@ -120,7 +194,6 @@ class RSSXApi:
             return jsonify({"error": "Failed to save comment"}), 500
         logger.info(f"Comment created by {username} with ID: {comment_id} for post {post_id}")
         return jsonify({"message": "Comment created successfully", "comment_id": comment_id}), 201
-
 
     def register(self):
         """Register a new user"""

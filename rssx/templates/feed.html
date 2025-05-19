@@ -108,7 +108,7 @@
         <div id="posts-container">
             {% if posts %}
                 {% for post in posts %}
-                <div class="reddit-post">
+                <div class="reddit-post"{% if post.federated_from %} data-federated-from="{{ post.federated_from }}"{% endif %}>
                     <div class="vote-column">
                         {% if current_user %}
                         <button class="vote-btn upvote" onclick="upvotePost('{{ post.id }}')" title="Upvote">&#8679;</button>
@@ -128,7 +128,13 @@
                         {% endif %}
                         <div class="d-flex justify-content-between align-items-center mb-2">
                             <span>
-                                <span class="fw-bold">{{ post.author }}</span>
+                                <span class="fw-bold">
+                                    {% if post.federated_from %}
+                                        {{ post.author }}@{{ post.federated_from }}
+                                    {% else %}
+                                        {{ post.author }}
+                                    {% endif %}
+                                </span>
                                 <span class="badge bg-secondary ms-2">Verified</span>
                             </span>
                             <small class="text-muted">{{ post.timestamp_formatted }}</small>
@@ -147,7 +153,13 @@
                                 <ul class="comment-list" id="comments-{{ post.id }}">
                                     {% for comment in post.comments %}
                                     <li class="comment-item">
-                                        <span class="comment-author">{{ comment.author }}</span>
+                                        <span class="comment-author">
+                                            {% if comment.federated_from %}
+                                                {{ comment.author }}@{{ comment.federated_from }}
+                                            {% else %}
+                                                {{ comment.author }}
+                                            {% endif %}
+                                        </span>
                                         <span>: {{ comment.content }}</span>
                                         <div class="comment-meta">Commented on {{ comment.timestamp_formatted }}</div>
                                     </li>
@@ -186,53 +198,74 @@
     }
 
     function upvotePost(postId) {
-        fetch('/api/upvote', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + getToken()
-            },
-            body: JSON.stringify({ post_id: postId })
-        }).then(res => {
-            if (res.ok) location.reload();
-            else res.json().then(data => alert(data.error || 'Failed to upvote'));
-        });
+        // Find the post's federated_from (if any) from the DOM
+        const postElem = document.querySelector(`[onclick="upvotePost('${postId}')"]`).closest('.reddit-post');
+        const federatedFrom = postElem && postElem.dataset.federatedFrom;
+        if (federatedFrom) {
+            // Federated post: send vote to remote server
+            const voter = `{{ current_user }}@${window.location.origin.replace(/^https?:\/\//, '')}`;
+            for (const proto of ['http://', 'https://']) {
+                let url = federatedFrom;
+                if (!/^https?:\/\//.test(federatedFrom)) url = proto + federatedFrom.replace(/^\/*/, '');
+                fetch(url + '/api/receive_vote', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ post_id: postId, vote_type: 'upvote', voter })
+                }).then(res => {
+                    if (res.ok) location.reload();
+                    else res.json().then(data => alert(data.error || 'Failed to upvote (federated)'));
+                }).catch(() => alert('Network error federating upvote'));
+                break;
+            }
+        } else {
+            // Local post: normal upvote
+            fetch('/api/upvote', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + getToken()
+                },
+                body: JSON.stringify({ post_id: postId })
+            }).then(res => {
+                if (res.ok) location.reload();
+                else res.json().then(data => alert(data.error || 'Failed to upvote'));
+            });
+        }
     }
 
-    // --- Simple RSA key management ---
-    async function generateKeyPair() {
-        const keyPair = await window.crypto.subtle.generateKey({
-            name: 'RSA-OAEP',
-            modulusLength: 2048,
-            publicExponent: new Uint8Array([1, 0, 1]),
-            hash: 'SHA-256',
-        }, true, ['encrypt', 'decrypt']);
-        const pub = await window.crypto.subtle.exportKey('jwk', keyPair.publicKey);
-        const priv = await window.crypto.subtle.exportKey('jwk', keyPair.privateKey);
-        localStorage.setItem('rsa_pub', JSON.stringify(pub));
-        localStorage.setItem('rsa_priv', JSON.stringify(priv));
-        return keyPair;
-    }
-    async function getKeyPair() {
-        let pub = localStorage.getItem('rsa_pub');
-        let priv = localStorage.getItem('rsa_priv');
-        if (!pub || !priv) return await generateKeyPair();
-        pub = await window.crypto.subtle.importKey('jwk', JSON.parse(pub), {name:'RSA-OAEP', hash:'SHA-256'}, true, ['encrypt']);
-        priv = await window.crypto.subtle.importKey('jwk', JSON.parse(priv), {name:'RSA-OAEP', hash:'SHA-256'}, true, ['decrypt']);
-        return { publicKey: pub, privateKey: priv };
-    }
-    async function encryptText(text, publicKey) {
-        const enc = new TextEncoder().encode(text);
-        const encrypted = await window.crypto.subtle.encrypt({name:'RSA-OAEP'}, publicKey, enc);
-        return btoa(String.fromCharCode(...new Uint8Array(encrypted)));
-    }
-    async function decryptText(base64, privateKey, isFederated = false) {
-        try {
-            const data = Uint8Array.from(atob(base64), c => c.charCodeAt(0));
-            const decrypted = await window.crypto.subtle.decrypt({name:'RSA-OAEP'}, privateKey, data);
-            return new TextDecoder().decode(decrypted);
-        } catch (e) {
-            return isFederated ? '[Provided from another server: cannot decrypt]' : '[Encrypted]';
+    function downvotePost(postId) {
+        // Find the post's federated_from (if any) from the DOM
+        const postElem = document.querySelector(`[onclick="downvotePost('${postId}')"]`).closest('.reddit-post');
+        const federatedFrom = postElem && postElem.dataset.federatedFrom;
+        if (federatedFrom) {
+            // Federated post: send vote to remote server
+            const voter = `{{ current_user }}@${window.location.origin.replace(/^https?:\/\//, '')}`;
+            for (const proto of ['http://', 'https://']) {
+                let url = federatedFrom;
+                if (!/^https?:\/\//.test(federatedFrom)) url = proto + federatedFrom.replace(/^\/*/, '');
+                fetch(url + '/api/receive_vote', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ post_id: postId, vote_type: 'downvote', voter })
+                }).then(res => {
+                    if (res.ok) location.reload();
+                    else res.json().then(data => alert(data.error || 'Failed to downvote (federated)'));
+                }).catch(() => alert('Network error federating downvote'));
+                break;
+            }
+        } else {
+            // Local post: normal downvote
+            fetch('/api/downvote', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + getToken()
+                },
+                body: JSON.stringify({ post_id: postId })
+            }).then(res => {
+                if (res.ok) location.reload();
+                else res.json().then(data => alert(data.error || 'Failed to downvote'));
+            });
         }
     }
 
@@ -264,19 +297,84 @@
         const input = document.getElementById('comment-input-' + postId);
         const commentText = input.value.trim();
         if (!commentText) return;
-        const keyPair = await getKeyPair();
-        const encrypted = await encryptText(commentText, keyPair.publicKey);
-        fetch('/api/comment', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + getToken()
-            },
-            body: JSON.stringify({ post_id: postId, content: encrypted })
-        }).then(res => {
-            if (res.ok) location.reload();
-            else res.json().then(data => alert(data.error || 'Failed to comment'));
-        });
+        // Find the post's federated_from (if any) from the DOM
+        const postElem = document.getElementById('comments-' + postId)?.closest('.reddit-post');
+        const federatedFrom = postElem && postElem.dataset.federatedFrom;
+        if (federatedFrom) {
+            // Federated post: send comment to remote server
+            // Fetch remote public key
+            let pubKeyPem = null;
+            for (const proto of ['http://', 'https://']) {
+                let url = federatedFrom;
+                if (!/^https?:\/\//.test(federatedFrom)) url = proto + federatedFrom.replace(/^\/*/, '');
+                try {
+                    const res = await fetch(url + '/api/public_key');
+                    if (!res.ok) continue;
+                    const data = await res.json();
+                    if (data.public_key) {
+                        pubKeyPem = data.public_key;
+                        break;
+                    }
+                } catch (e) { /* try next proto */ }
+            }
+            if (!pubKeyPem) {
+                alert('Could not fetch remote server public key for comment federation');
+                return;
+            }
+            // Import PEM public key
+            const pemHeader = "-----BEGIN PUBLIC KEY-----";
+            const pemFooter = "-----END PUBLIC KEY-----";
+            let pemContents = pubKeyPem.replace(pemHeader, '').replace(pemFooter, '').replace(/\s/g, '');
+            const binaryDer = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
+            const importedKey = await window.crypto.subtle.importKey(
+                'spki',
+                binaryDer.buffer,
+                { name: 'RSA-OAEP', hash: 'SHA-256' },
+                false,
+                ['encrypt']
+            );
+            // Encrypt comment for remote server
+            const encrypted = await encryptText(commentText, importedKey);
+            // Prepare comment data
+            const commentData = {
+                author: '{{ current_user }}',
+                timestamp: Math.floor(Date.now() / 1000),
+                content: encrypted,
+                post_id: postId,
+                signature: '', // Optionally sign client-side, or let server sign
+                federated_from: window.location.origin
+            };
+            // Send to remote server
+            for (const proto of ['http://', 'https://']) {
+                let url = federatedFrom;
+                if (!/^https?:\/\//.test(federatedFrom)) url = proto + federatedFrom.replace(/^\/*/, '');
+                try {
+                    const res = await fetch(url + '/api/receive_comment', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(commentData)
+                    });
+                    if (res.ok) location.reload();
+                    else res.json().then(data => alert(data.error || 'Failed to federate comment'));
+                    break;
+                } catch (e) { /* try next proto */ }
+            }
+        } else {
+            // Local post: normal comment
+            const keyPair = await getKeyPair();
+            const encrypted = await encryptText(commentText, keyPair.publicKey);
+            fetch('/api/comment', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': 'Bearer ' + getToken()
+                },
+                body: JSON.stringify({ post_id: postId, content: encrypted })
+            }).then(res => {
+                if (res.ok) location.reload();
+                else res.json().then(data => alert(data.error || 'Failed to comment'));
+            });
+        }
     }
 
     // --- Decrypt posts/comments on page load ---
@@ -391,20 +489,6 @@
     }
     document.addEventListener('DOMContentLoaded', fetchFederatedPosts);
 
-    function downvotePost(postId) {
-        fetch('/api/downvote', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': 'Bearer ' + getToken()
-            },
-            body: JSON.stringify({ post_id: postId })
-        }).then(res => {
-            if (res.ok) location.reload();
-            else res.json().then(data => alert(data.error || 'Failed to downvote'));
-        });
-    }
-
     // --- Add Federated Server via AJAX ---
     document.addEventListener('DOMContentLoaded', function() {
         const addServerForm = document.getElementById('add-server-form');
@@ -482,5 +566,29 @@
             } catch (e) { /* skip this server */ }
         }
     }
+
+    // --- BEGIN: Minimal browser-side crypto helpers for demo/testing ---
+    async function getKeyPair() {
+        // For demo: generate a temporary keypair each time (not persistent!)
+        // In production, use IndexedDB or WebCryptoKeyStorage for persistence
+        return window.crypto.subtle.generateKey(
+            { name: 'RSA-OAEP', modulusLength: 2048, publicExponent: new Uint8Array([1,0,1]), hash: 'SHA-256' },
+            true,
+            ['encrypt', 'decrypt']
+        );
+    }
+
+    async function encryptText(plainText, publicKey) {
+        const encoder = new TextEncoder();
+        const data = encoder.encode(plainText);
+        const encrypted = await window.crypto.subtle.encrypt(
+            { name: 'RSA-OAEP' },
+            publicKey,
+            data
+        );
+        // Return base64 for transport
+        return btoa(String.fromCharCode(...new Uint8Array(encrypted)));
+    }
+    // --- END: Minimal browser-side crypto helpers ---
 </script>
 {% endblock %}

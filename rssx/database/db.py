@@ -339,11 +339,11 @@ class Database:
             return False
 
     def save_comment(self, comment_data):
-        """Save a new comment to the database and return its ID"""
+        """Save a new comment to the database and return its ID. Supports federated_from for federated comments."""
         try:
             conn = sqlite3.connect(self.db_path)
             cursor = conn.cursor()
-            # Ensure the comments table exists
+            # Ensure the comments table exists and has federated_from column
             cursor.execute(
                 """
                 CREATE TABLE IF NOT EXISTS comments (
@@ -352,20 +352,42 @@ class Database:
                     timestamp INTEGER NOT NULL,
                     content TEXT NOT NULL,
                     post_id TEXT NOT NULL,
-                    signature TEXT NOT NULL
+                    signature TEXT NOT NULL,
+                    federated_from TEXT
                 )
             """
             )
-            cursor.execute(
-                "INSERT INTO comments (author, timestamp, content, post_id, signature) VALUES (?, ?, ?, ?, ?)",
-                (
-                    comment_data["author"],
-                    comment_data["timestamp"],
-                    comment_data["content"],
-                    comment_data["post_id"],
-                    comment_data["signature"],
-                ),
-            )
+            # Try to add federated_from column if not present
+            try:
+                cursor.execute("ALTER TABLE comments ADD COLUMN federated_from TEXT")
+            except sqlite3.OperationalError as e:
+                if "duplicate column name" not in str(e):
+                    logger.error(f"Error adding federated_from column to comments: {str(e)}")
+
+            federated_from = comment_data.get("federated_from")
+            if federated_from:
+                cursor.execute(
+                    "INSERT INTO comments (author, timestamp, content, post_id, signature, federated_from) VALUES (?, ?, ?, ?, ?, ?)",
+                    (
+                        comment_data["author"],
+                        comment_data["timestamp"],
+                        comment_data["content"],
+                        comment_data["post_id"],
+                        comment_data["signature"],
+                        federated_from,
+                    ),
+                )
+            else:
+                cursor.execute(
+                    "INSERT INTO comments (author, timestamp, content, post_id, signature) VALUES (?, ?, ?, ?, ?)",
+                    (
+                        comment_data["author"],
+                        comment_data["timestamp"],
+                        comment_data["content"],
+                        comment_data["post_id"],
+                        comment_data["signature"],
+                    ),
+                )
             conn.commit()
             comment_id = cursor.lastrowid
             conn.close()
