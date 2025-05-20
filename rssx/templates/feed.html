@@ -293,83 +293,82 @@
     });
 
     // --- Encrypt comment before sending ---
-    async function submitComment(postId) {
-        const input = document.getElementById('comment-input-' + postId);
-        const commentText = input.value.trim();
+    function submitComment(postId) {
+        const commentInput = document.getElementById('comment-input-' + postId);
+        const commentText = commentInput.value.trim();
         if (!commentText) return;
-        // Find the post's federated_from (if any) from the DOM
+        commentInput.value = '';
         const postElem = document.getElementById('comments-' + postId)?.closest('.reddit-post');
         const federatedFrom = postElem && postElem.dataset.federatedFrom;
         if (federatedFrom) {
-            // Federated post: send comment to remote server
-            // Fetch remote public key
+            // Federated post: send encrypted comment to remote server
             let pubKeyPem = null;
-            for (const proto of ['http://', 'https://']) {
-                let url = federatedFrom;
-                if (!/^https?:\/\//.test(federatedFrom)) url = proto + federatedFrom.replace(/^\/*/, '');
-                try {
-                    const res = await fetch(url + '/api/public_key');
-                    if (!res.ok) continue;
-                    const data = await res.json();
-                    if (data.public_key) {
-                        pubKeyPem = data.public_key;
+            (async () => {
+                for (const proto of ['http://', 'https://']) {
+                    let url = federatedFrom;
+                    if (!/^https?:\/\//.test(federatedFrom)) url = proto + federatedFrom.replace(/^\/*/, '');
+                    try {
+                        const res = await fetch(url + '/api/public_key');
+                        if (!res.ok) continue;
+                        const data = await res.json();
+                        if (data.public_key) {
+                            pubKeyPem = data.public_key;
+                            break;
+                        }
+                    } catch (e) { /* try next proto */ }
+                }
+                if (!pubKeyPem) {
+                    alert('Could not fetch remote server public key for comment federation');
+                    return;
+                }
+                // Import PEM public key
+                const pemHeader = "-----BEGIN PUBLIC KEY-----";
+                const pemFooter = "-----END PUBLIC KEY-----";
+                let pemContents = pubKeyPem.replace(pemHeader, '').replace(pemFooter, '').replace(/\s/g, '');
+                const binaryDer = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
+                const importedKey = await window.crypto.subtle.importKey(
+                    'spki',
+                    binaryDer.buffer,
+                    { name: 'RSA-OAEP', hash: 'SHA-256' },
+                    false,
+                    ['encrypt']
+                );
+                // Encrypt comment for remote server
+                const encrypted = await encryptText(commentText, importedKey);
+                // Prepare comment data
+                const commentData = {
+                    author: '{{ current_user }}',
+                    timestamp: Math.floor(Date.now() / 1000),
+                    content: encrypted,
+                    post_id: postId,
+                    signature: '', // Optionally sign client-side, or let server sign
+                    federated_from: window.location.origin
+                };
+                // Send to remote server
+                for (const proto of ['http://', 'https://']) {
+                    let url = federatedFrom;
+                    if (!/^https?:\/\//.test(federatedFrom)) url = proto + federatedFrom.replace(/^\/*/, '');
+                    try {
+                        const res = await fetch(url + '/api/receive_comment', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify(commentData)
+                        });
+                        if (res.ok) location.reload();
+                        else res.json().then(data => alert(data.error || 'Failed to federate comment'));
                         break;
-                    }
-                } catch (e) { /* try next proto */ }
-            }
-            if (!pubKeyPem) {
-                alert('Could not fetch remote server public key for comment federation');
-                return;
-            }
-            // Import PEM public key
-            const pemHeader = "-----BEGIN PUBLIC KEY-----";
-            const pemFooter = "-----END PUBLIC KEY-----";
-            let pemContents = pubKeyPem.replace(pemHeader, '').replace(pemFooter, '').replace(/\s/g, '');
-            const binaryDer = Uint8Array.from(atob(pemContents), c => c.charCodeAt(0));
-            const importedKey = await window.crypto.subtle.importKey(
-                'spki',
-                binaryDer.buffer,
-                { name: 'RSA-OAEP', hash: 'SHA-256' },
-                false,
-                ['encrypt']
-            );
-            // Encrypt comment for remote server
-            const encrypted = await encryptText(commentText, importedKey);
-            // Prepare comment data
-            const commentData = {
-                author: '{{ current_user }}',
-                timestamp: Math.floor(Date.now() / 1000),
-                content: encrypted,
-                post_id: postId,
-                signature: '', // Optionally sign client-side, or let server sign
-                federated_from: window.location.origin
-            };
-            // Send to remote server
-            for (const proto of ['http://', 'https://']) {
-                let url = federatedFrom;
-                if (!/^https?:\/\//.test(federatedFrom)) url = proto + federatedFrom.replace(/^\/*/, '');
-                try {
-                    const res = await fetch(url + '/api/receive_comment', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(commentData)
-                    });
-                    if (res.ok) location.reload();
-                    else res.json().then(data => alert(data.error || 'Failed to federate comment'));
-                    break;
-                } catch (e) { /* try next proto */ }
-            }
+                    } catch (e) { /* try next proto */ }
+                }
+            })();
         } else {
-            // Local post: normal comment
-            const keyPair = await getKeyPair();
-            const encrypted = await encryptText(commentText, keyPair.publicKey);
+            // Local post: send plaintext comment
             fetch('/api/comment', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
                     'Authorization': 'Bearer ' + getToken()
                 },
-                body: JSON.stringify({ post_id: postId, content: encrypted })
+                body: JSON.stringify({ post_id: postId, content: commentText })
             }).then(res => {
                 if (res.ok) location.reload();
                 else res.json().then(data => alert(data.error || 'Failed to comment'));

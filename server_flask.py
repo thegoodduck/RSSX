@@ -82,6 +82,27 @@ class RSSXApi:
         federated_from = data.get("federated_from")
         if not all([author, timestamp, content, signature, post_id, federated_from]):
             return jsonify({"error": "Missing required fields"}), 400
+
+        # Check if this post is local or federated
+        post = self.db.get_post_by_id(post_id)
+        if post and post.get("federated_from") and post["federated_from"] != federated_from:
+            # This is a federated post, not the origin. Forward to the origin server.
+            import requests as pyrequests
+            origin_server = post["federated_from"]
+            # Forward the comment to the origin server's /api/receive_comment
+            try:
+                url = origin_server
+                if not url.startswith("http://") and not url.startswith("https://"):
+                    url = "http://" + url
+                res = pyrequests.post(url + "/api/receive_comment", json=data, timeout=5)
+                if res.ok:
+                    return jsonify({"message": "Comment forwarded to origin server"}), 200
+                else:
+                    return jsonify({"error": "Failed to forward comment to origin server"}), 502
+            except Exception as e:
+                logger.error(f"Error forwarding federated comment: {e}")
+                return jsonify({"error": "Network error forwarding comment to origin server"}), 502
+
         # Decrypt the content with the server's private key (if encrypted)
         try:
             from base64 import b64decode
@@ -121,6 +142,24 @@ class RSSXApi:
         voter = data.get("voter")  # user@server
         if not all([post_id, vote_type, voter]):
             return jsonify({"error": "Missing required fields"}), 400
+        # Check if this post is local or federated
+        post = self.db.get_post_by_id(post_id)
+        if post and post.get("federated_from") and post["federated_from"] != voter.split('@')[-1]:
+            # This is a federated post, not the origin. Forward to the origin server.
+            import requests as pyrequests
+            origin_server = post["federated_from"]
+            try:
+                url = origin_server
+                if not url.startswith("http://") and not url.startswith("https://"):
+                    url = "http://" + url
+                res = pyrequests.post(url + "/api/receive_vote", json=data, timeout=5)
+                if res.ok:
+                    return jsonify({"message": "Vote forwarded to origin server"}), 200
+                else:
+                    return jsonify({"error": "Failed to forward vote to origin server"}), 502
+            except Exception as e:
+                logger.error(f"Error forwarding federated vote: {e}")
+                return jsonify({"error": "Network error forwarding vote to origin server"}), 502
         # Use voter as username for uniqueness
         if vote_type == 'upvote':
             success = self.db.upvote_post(post_id, voter)
