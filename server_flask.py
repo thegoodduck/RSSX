@@ -603,8 +603,8 @@ def create_app(config=None):
     @app.route("/")
     def index():
         if config.get("ENABLE_WEB_UI"):
-            # Render feed.html and supply the JWT token from session (if available)
-            return render_template("feed.html", token=session.get("token"))
+            # Render index.html and supply the JWT token from session (if available)
+            return render_template("index.html", token=session.get("token"))
         else:
             return {
                 "status": "ok",
