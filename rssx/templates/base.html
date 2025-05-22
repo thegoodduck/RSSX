@@ -4,120 +4,47 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{% block title %}RSSX - Distributed Social Media{% endblock %}</title>
+    <!-- <link rel="stylesheet" href="{{ url_for('static', filename='css/twitter.css') }}"> -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link href="https://cdnjs.cloudflare.com/ajax/libs/animate.css/4.1.1/animate.min.css" rel="stylesheet">
     <style>
-        :root {
-            --rssx-primary: #1DA1F2;
-            --rssx-bg: #f5f8fa;
-            --rssx-card: #fff;
-            --rssx-text: #222;
-            --rssx-muted: #657786;
-        }
-        body[data-theme="dark"] {
-            --rssx-primary: #1DA1F2;
-            --rssx-bg: #181c20;
-            --rssx-card: #23272b;
-            --rssx-text: #f5f8fa;
-            --rssx-muted: #8899a6;
-        }
-        body {
-            background: var(--rssx-bg);
-            color: var(--rssx-text);
-            transition: background 0.4s, color 0.4s;
-        }
-        .navbar, .footer {
-            transition: background 0.4s, color 0.4s;
-        }
-        .card, .form-twitter input, .form-twitter textarea {
-            background: var(--rssx-card) !important;
-            color: var(--rssx-text) !important;
-            transition: background 0.4s, color 0.4s;
-        }
-        .form-twitter input, .form-twitter textarea {
-            border-radius: 999px;
-            border: 1px solid #e1e8ed;
-            padding: 0.75rem 1.25rem;
-            background: var(--rssx-card);
-            margin-bottom: 1rem;
-            width: 100%;
-            transition: border 0.2s, background 0.4s, color 0.4s;
-        }
-        .form-twitter input:focus,
-        .form-twitter textarea:focus {
-            border-color: var(--rssx-primary);
-            outline: none;
-            background: var(--rssx-bg);
-        }
-        .form-twitter label {
-            font-weight: 500;
-            color: var(--rssx-muted);
-            margin-bottom: 0.25rem;
-        }
+        /* Twitter-style button */
         .btn-twitter {
-            background-color: var(--rssx-primary);
+            background-color: #1DA1F2;
             color: #fff;
             border: none;
             border-radius: 999px;
             padding: 0.5rem 1.5rem;
             font-weight: bold;
-            transition: background 0.2s, box-shadow 0.2s;
-            box-shadow: 0 2px 8px rgba(29,161,242,0.08);
+            transition: background 0.2s;
         }
         .btn-twitter:hover, .btn-twitter:focus {
             background-color: #0d8ddb;
             color: #fff;
-            box-shadow: 0 4px 16px rgba(29,161,242,0.15);
         }
-        .card {
-            border-radius: 1.5rem;
-            box-shadow: 0 2px 16px rgba(0,0,0,0.06);
-            margin-bottom: 1.5rem;
-            animation: fadeInUp 0.7s;
+
+        /* Twitter-style form */
+        .form-twitter input,
+        .form-twitter textarea {
+            border-radius: 999px;
+            border: 1px solid #e1e8ed;
+            padding: 0.75rem 1.25rem;
+            background: #f5f8fa;
+            margin-bottom: 1rem;
+            width: 100%;
+            transition: border 0.2s;
         }
-        .fade-anim {
-            animation: fadeIn 0.5s;
+        .form-twitter input:focus,
+        .form-twitter textarea:focus {
+            border-color: #1DA1F2;
+            outline: none;
+            background: #fff;
         }
-        .navbar {
-            background: var(--rssx-primary) !important;
-        }
-        .footer {
-            background: var(--rssx-bg) !important;
-            color: var(--rssx-muted) !important;
-        }
-        .toggle-dark {
-            cursor: pointer;
-            font-size: 1.3rem;
-            margin-left: 1rem;
-            color: #fff;
-            transition: color 0.3s;
-        }
-        .toggle-dark:hover {
-            color: #ffd700;
+        .form-twitter label {
+            font-weight: 500;
+            color: #657786;
+            margin-bottom: 0.25rem;
         }
     </style>
-    <script>
-        // Smooth page transitions
-        document.addEventListener('DOMContentLoaded', function() {
-            document.body.classList.add('animate__animated', 'animate__fadeIn');
-        });
-        // Dark mode toggle
-        function toggleDarkMode() {
-            const theme = document.body.getAttribute('data-theme');
-            if (theme === 'dark') {
-                document.body.setAttribute('data-theme', 'light');
-                localStorage.setItem('rssx-theme', 'light');
-            } else {
-                document.body.setAttribute('data-theme', 'dark');
-                localStorage.setItem('rssx-theme', 'dark');
-            }
-        }
-        window.onload = function() {
-            const saved = localStorage.getItem('rssx-theme');
-            if (saved) document.body.setAttribute('data-theme', saved);
-        };
-    </script>
-</head>
 <body>
     <nav class="navbar navbar-expand-lg navbar-dark" style="background-color: #1DA1F2;">
         <div class="container">
@@ -150,18 +77,15 @@
                         <a class="nav-link" href="{{ url_for('web.register') }}">Register</a>
                     </li>
                     {% endif %}
-                    <li class="nav-item">
-                        <span class="toggle-dark" onclick="toggleDarkMode()" title="Toggle dark mode">🌓</span>
-                    </li>
                 </ul>
             </div>
         </div>
     </nav>
 
-    <div class="container mt-4 fade-anim">
+    <div class="container mt-4">
         {% if messages %}
             {% for category, message in messages %}
-            <div class="alert alert-{{ category }} alert-dismissible fade show animate__animated animate__fadeInDown">
+            <div class="alert alert-{{ category }} alert-dismissible fade show">
                 {{ message }}
                 <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
             </div>
@@ -171,13 +95,14 @@
         {% block content %}{% endblock %}
     </div>
 
-    <footer class="footer mt-5 py-3">
+    <footer class="footer mt-5 py-3" style="background-color: #F5F8FA;"></footer>
         <div class="container text-center">
             <span class="text-muted">RSSX Distributed Social Media Platform &copy; 2025</span>
         </div>
     </footer>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- <script src="{{ url_for('static', filename='js/main.js') }}"></script> -->
     {% block scripts %}{% endblock %}
 </body>
 </html>
