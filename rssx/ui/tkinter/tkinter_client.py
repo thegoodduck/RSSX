@@ -1,206 +1,321 @@
-import customtkinter as ctk
+import tkinter as tk
+from tkinter import ttk, messagebox, scrolledtext
 import requests
-from tkinter import messagebox, simpledialog
+import json
+import os
+import tkinter.simpledialog as simpledialog
+from datetime import datetime
 
-ctk.set_appearance_mode("System")
-ctk.set_default_color_theme("blue")
+_temp_root = tk.Tk()
+_temp_root.withdraw()
+default_server_url = simpledialog.askstring("Server URL", "Enter the server URL:", initialvalue="http://localhost:5000")
+_temp_root.destroy()
 
-class ServerTab:
-    def __init__(self, parent, server_url):
-        self.parent = parent
-        self.server_url = server_url
+if default_server_url:
+    os.environ["DEFAULT_SERVER"] = default_server_url
+
+class RSSXTkinterUI:
+    def __init__(self, config):
+        self.config = config
+        self.server_url = config.get("DEFAULT_SERVER") or os.environ.get("DEFAULT_SERVER") or "http://localhost:5000"
         self.token = None
         self.username = None
-        self.frame = ctk.CTkFrame(parent.tabs_area, corner_radius=15)
-        self.frame.pack(fill="both", expand=True)
-        self.show_login()
 
-    def show_login(self):
-        for widget in self.frame.winfo_children():
-            widget.destroy()
-        label = ctk.CTkLabel(self.frame, text=f"Login to RSSX\n{self.server_url}", font=("Segoe UI", 22, "bold"))
-        label.pack(pady=30)
-        self.username_entry = ctk.CTkEntry(self.frame, placeholder_text="Username")
-        self.username_entry.pack(pady=10)
-        self.password_entry = ctk.CTkEntry(self.frame, placeholder_text="Password", show="*")
-        self.password_entry.pack(pady=10)
-        login_btn = ctk.CTkButton(self.frame, text="Login", command=self.login)
-        login_btn.pack(pady=20)
-        register_btn = ctk.CTkButton(self.frame, text="Register", command=self.show_register)
-        register_btn.pack(pady=5)
+        self.root = tk.Tk()
+        self.root.title("RSSX Client")
+        self.root.geometry("1024x768")
+        self.root.minsize(800, 600)
 
-    def show_register(self):
-        for widget in self.frame.winfo_children():
-            widget.destroy()
-        label = ctk.CTkLabel(self.frame, text=f"Register for RSSX\n{self.server_url}", font=("Segoe UI", 22, "bold"))
-        label.pack(pady=30)
-        self.reg_username_entry = ctk.CTkEntry(self.frame, placeholder_text="Username")
-        self.reg_username_entry.pack(pady=10)
-        self.reg_password_entry = ctk.CTkEntry(self.frame, placeholder_text="Password", show="*")
-        self.reg_password_entry.pack(pady=10)
-        register_btn = ctk.CTkButton(self.frame, text="Register", command=self.register)
-        register_btn.pack(pady=20)
-        back_btn = ctk.CTkButton(self.frame, text="Back to Login", command=self.show_login)
-        back_btn.pack(pady=5)
+        self.control_panel = ttk.Frame(self.root)
+        self.control_panel.pack(fill=tk.X, padx=5, pady=5)
 
-    def login(self):
-        username = self.username_entry.get()
-        password = self.password_entry.get()
+        self.refresh_button = ttk.Button(self.control_panel, text="Refresh", command=self.refresh_feed)
+        self.refresh_button.pack(side=tk.LEFT, padx=5)
+
+        self.login_button = ttk.Button(self.control_panel, text="Login", command=self.show_login_dialog)
+        self.login_button.pack(side=tk.LEFT, padx=5)
+
+        self.create_post_button = ttk.Button(self.control_panel, text="Create Post", command=self.show_create_post_dialog)
+        self.create_post_button.pack(side=tk.LEFT, padx=5)
+
+        self.status_var = tk.StringVar()
+        self.status_var.set("Not connected")
+        self.status_label = ttk.Label(self.control_panel, textvariable=self.status_var)
+        self.status_label.pack(side=tk.RIGHT, padx=20)
+
+        self.feed_text = scrolledtext.ScrolledText(self.root, wrap=tk.WORD, state=tk.DISABLED)
+        self.feed_text.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
+
+        self.load_token()
+        self.refresh_feed()
+
+    def show_login_dialog(self):
+        login_dialog = tk.Toplevel(self.root)
+        login_dialog.title("Login")
+        login_dialog.geometry("300x150")
+        login_dialog.transient(self.root)
+        login_dialog.grab_set()
+
+        ttk.Label(login_dialog, text="Username:").grid(row=0, column=0, padx=10, pady=10, sticky=tk.W)
+        username_var = tk.StringVar()
+        username_entry = ttk.Entry(login_dialog, textvariable=username_var, width=20)
+        username_entry.grid(row=0, column=1, padx=10, pady=10)
+
+        ttk.Label(login_dialog, text="Password:").grid(row=1, column=0, padx=10, pady=10, sticky=tk.W)
+        password_var = tk.StringVar()
+        password_entry = ttk.Entry(login_dialog, textvariable=password_var, show="*", width=20)
+        password_entry.grid(row=1, column=1, padx=10, pady=10)
+
+        def do_login():
+            username = username_var.get()
+            password = password_var.get()
+            if not username or not password:
+                messagebox.showerror("Error", "Please enter both username and password")
+                return
+
+            try:
+                response = requests.post(
+                    f"{self.server_url}/api/login",
+                    json={"username": username, "password": password},
+                    timeout=5
+                )
+                if response.status_code == 200:
+                    token_data = response.json()
+                    self.token = token_data.get("token")
+                    self.username = username
+                    self.save_token()
+                    self.status_var.set(f"Logged in as {username}")
+                    self.refresh_feed()
+                    messagebox.showinfo("Login", "Login successful!")
+                    login_dialog.destroy()
+                else:
+                    error = response.json().get("error", "Invalid credentials")
+                    messagebox.showerror("Login Failed", error)
+            except Exception as e:
+                messagebox.showerror("Error", f"Login failed: {e}")
+
+        button_frame = ttk.Frame(login_dialog)
+        button_frame.grid(row=2, column=0, columnspan=2, pady=10)
+        ttk.Button(button_frame, text="Cancel", command=login_dialog.destroy).pack(side=tk.LEFT, padx=10)
+        ttk.Button(button_frame, text="Login", command=do_login).pack(side=tk.RIGHT, padx=10)
+
+    def show_create_post_dialog(self):
+        if not self.token:
+            messagebox.showwarning("Warning", "Please log in first")
+            return
+
+        post_dialog = tk.Toplevel(self.root)
+        post_dialog.title("Create Post")
+        post_dialog.geometry("400x300")
+        post_dialog.transient(self.root)
+        post_dialog.grab_set()
+
+        ttk.Label(post_dialog, text="Post Content:").pack(anchor="w", padx=10, pady=5)
+        content_text = scrolledtext.ScrolledText(post_dialog, wrap=tk.WORD, height=10)
+        content_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+        def do_post():
+            content = content_text.get("1.0", tk.END).strip()
+            if not content:
+                messagebox.showerror("Error", "Post content cannot be empty")
+                return
+
+            try:
+                headers = {"Authorization": f"Bearer {self.token}"}
+                response = requests.post(
+                    f"{self.server_url}/api/post",
+                    json={"content": content},
+                    headers=headers,
+                    timeout=5
+                )
+                if response.status_code == 201:
+                    messagebox.showinfo("Success", "Post created successfully")
+                    self.refresh_feed()
+                    post_dialog.destroy()
+                else:
+                    error = response.json().get("error", "Failed to create post")
+                    messagebox.showerror("Error", error)
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to create post: {e}")
+
+        button_frame = ttk.Frame(post_dialog)
+        button_frame.pack(fill=tk.X, padx=10, pady=10)
+        ttk.Button(button_frame, text="Cancel", command=post_dialog.destroy).pack(side=tk.LEFT)
+        ttk.Button(button_frame, text="Post", command=do_post).pack(side=tk.RIGHT)
+
+    def show_comment_dialog(self, post_id):
+        if not self.token:
+            messagebox.showwarning("Warning", "Please log in first")
+            return
+
+        comment_dialog = tk.Toplevel(self.root)
+        comment_dialog.title("Add Comment")
+        comment_dialog.geometry("400x300")
+        comment_dialog.transient(self.root)
+        comment_dialog.grab_set()
+
+        ttk.Label(comment_dialog, text="Comment:").pack(anchor="w", padx=10, pady=5)
+        comment_text = scrolledtext.ScrolledText(comment_dialog, wrap=tk.WORD, height=10)
+        comment_text.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+
+        def do_comment():
+            content = comment_text.get("1.0", tk.END).strip()
+            if not content:
+                messagebox.showerror("Error", "Comment cannot be empty")
+                return
+
+            try:
+                headers = {"Authorization": f"Bearer {self.token}"}
+                response = requests.post(
+                    f"{self.server_url}/api/comment",
+                    json={"post_id": post_id, "content": content},
+                    headers=headers,
+                    timeout=5
+                )
+                if response.status_code == 201:
+                    messagebox.showinfo("Success", "Comment added successfully")
+                    self.refresh_feed()
+                    comment_dialog.destroy()
+                else:
+                    error = response.json().get("error", "Failed to add comment")
+                    messagebox.showerror("Error", error)
+            except Exception as e:
+                messagebox.showerror("Error", f"Failed to add comment: {e}")
+
+        button_frame = ttk.Frame(comment_dialog)
+        button_frame.pack(fill=tk.X, padx=10, pady=10)
+        ttk.Button(button_frame, text="Cancel", command=comment_dialog.destroy).pack(side=tk.LEFT)
+        ttk.Button(button_frame, text="Comment", command=do_comment).pack(side=tk.RIGHT)
+
+    def refresh_feed(self):
+        if not self.token:
+            self.feed_text.config(state=tk.NORMAL)
+            self.feed_text.delete("1.0", tk.END)
+            self.feed_text.insert(tk.END, "Please log in to view the feed.")
+            self.feed_text.config(state=tk.DISABLED)
+            return
+
         try:
-            resp = requests.post(f"{self.server_url}/login", json={"username": username, "password": password})
-            if resp.status_code == 200:
-                self.token = resp.json().get("token")
-                self.username = username
-                self.show_feed()
-            else:
-                messagebox.showerror("Login Failed", resp.json().get("error", "Unknown error"))
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
-
-    def register(self):
-        username = self.reg_username_entry.get()
-        password = self.reg_password_entry.get()
-        try:
-            resp = requests.post(f"{self.server_url}/register", json={"username": username, "password": password})
-            if resp.status_code == 200:
-                messagebox.showinfo("Success", "Registration successful! Please log in.")
-                self.show_login()
-            else:
-                messagebox.showerror("Registration Failed", resp.json().get("error", "Unknown error"))
-        except Exception as e:
-            messagebox.showerror("Error", str(e))
-
-    def show_feed(self):
-        for widget in self.frame.winfo_children():
-            widget.destroy()
-        header = ctk.CTkLabel(self.frame, text="Feed", font=("Segoe UI", 22, "bold"))
-        header.pack(pady=20)
-        post_btn = ctk.CTkButton(self.frame, text="New Post", command=self.show_new_post)
-        post_btn.pack(pady=10)
-        self.feed_frame = ctk.CTkScrollableFrame(self.frame, width=700, height=500)
-        self.feed_frame.pack(pady=10, fill="both", expand=True)
-        self.load_feed()
-
-    def load_feed(self):
-        for widget in self.feed_frame.winfo_children():
-            widget.destroy()
-        try:
-            resp = requests.get(f"{self.server_url}/feed", headers={"Authorization": f"Bearer {self.token}"})
-            if resp.status_code == 200:
-                posts = resp.json().get("posts", [])
+            headers = {"Authorization": f"Bearer {self.token}"}
+            response = requests.get(f"{self.server_url}/api/feed", headers=headers, timeout=10)
+            if response.status_code == 200:
+                posts = response.json().get("posts", [])
+                self.feed_text.config(state=tk.NORMAL)
+                self.feed_text.delete("1.0", tk.END)
                 for post in posts:
                     self.display_post(post)
+                self.feed_text.config(state=tk.DISABLED)
             else:
-                messagebox.showerror("Error", resp.json().get("error", f"Failed to load feed ({resp.status_code})"))
+                error = response.json().get("error", "Failed to fetch feed")
+                messagebox.showerror("Error", error)
         except Exception as e:
-            messagebox.showerror("Error", str(e))
+            messagebox.showerror("Error", f"Failed to fetch feed: {e}")
 
     def display_post(self, post):
-        frame = ctk.CTkFrame(self.feed_frame, corner_radius=10)
-        frame.pack(pady=10, padx=10, fill="x")
-        # Username display logic inspired by feed.html
-        user = post.get("user")
-        federated_from = post.get("federated_from")
-        if user:
-            if federated_from:
-                user_display = f"{user}@{federated_from}"
+        author = post.get("author", "Unknown")
+        content = post.get("content", "")
+        timestamp = post.get("timestamp", 0)
+        post_id = post.get("id", "Unknown")
+        upvotes = post.get("upvotes", 0)
+        downvotes = post.get("downvotes", 0)
+        spam = post.get("spam", 0)
+        date_str = datetime.fromtimestamp(timestamp).strftime('%Y-%m-%d %H:%M:%S')
+
+        # Show suspected spam warning if marked
+        if spam:
+            self.feed_text.insert(tk.END, "[SUSPECTED SPAM] This post has been flagged as spam by the network.\n", 'spam')
+            self.feed_text.tag_config('spam', foreground='red', font=('TkDefaultFont', 10, 'bold'))
+
+        # Display the post content
+        self.feed_text.insert(tk.END, f"Author: {author}\nDate: {date_str}\nContent:\n{content}\nUpvotes: {upvotes}  Downvotes: {downvotes}\n\n")
+
+        # Add an upvote button for each post
+        upvote_button = ttk.Button(self.root, text="Upvote", command=lambda: self.upvote_post(post_id))
+        self.feed_text.window_create(tk.END, window=upvote_button)
+
+        # Add a downvote button for each post
+        downvote_button = ttk.Button(self.root, text="Downvote", command=lambda: self.downvote_post(post_id))
+        self.feed_text.window_create(tk.END, window=downvote_button)
+
+        # Add a comment button for each post
+        comment_button = ttk.Button(self.root, text="Comment", command=lambda: self.show_comment_dialog(post_id))
+        self.feed_text.window_create(tk.END, window=comment_button)
+
+        self.feed_text.insert(tk.END, "\n" + ("="*40) + "\n\n")
+
+    def downvote_post(self, post_id):
+        if not self.token:
+            messagebox.showwarning("Warning", "Please log in first")
+            return
+        try:
+            headers = {"Authorization": f"Bearer {self.token}"}
+            response = requests.post(
+                f"{self.server_url}/api/downvote",
+                json={"post_id": post_id},
+                headers=headers,
+                timeout=5
+            )
+            if response.status_code == 200:
+                messagebox.showinfo("Success", "Post downvoted successfully")
+                self.refresh_feed()
             else:
-                user_display = user
-        else:
-            user_display = "Unknown"
-        title = ctk.CTkLabel(frame, text=post.get("title", ""), font=("Segoe UI", 16, "bold"))
-        title.pack(anchor="w", padx=10, pady=(5, 0))
-        meta = ctk.CTkLabel(frame, text=f"by {user_display}", font=("Segoe UI", 12, "italic"))
-        meta.pack(anchor="w", padx=10)
-        content = ctk.CTkLabel(frame, text=post.get("content", ""), font=("Segoe UI", 14))
-        content.pack(anchor="w", padx=10, pady=(0, 5))
-        # TODO: Add upvote, comment, and federated actions
+                error = response.json().get("error", "Failed to downvote post")
+                messagebox.showerror("Error", error)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to downvote post: {e}")
 
-    def show_new_post(self):
-        win = ctk.CTkToplevel(self.parent)
-        win.title("New Post")
-        win.geometry("400x300")
-        title_entry = ctk.CTkEntry(win, placeholder_text="Title")
-        title_entry.pack(pady=10, fill="x", padx=20)
-        content_entry = ctk.CTkTextbox(win, height=120)
-        content_entry.pack(pady=10, fill="both", padx=20)
-        def submit():
-            title = title_entry.get()
-            content = content_entry.get("1.0", "end").strip()
+    def upvote_post(self, post_id):
+        if not self.token:
+            messagebox.showwarning("Warning", "Please log in first")
+            return
+
+        try:
+            headers = {"Authorization": f"Bearer {self.token}"}
+            response = requests.post(
+                f"{self.server_url}/api/upvote",
+                json={"post_id": post_id},
+                headers=headers,
+                timeout=5
+            )
+            if response.status_code == 200:
+                messagebox.showinfo("Success", "Post upvoted successfully")
+                self.refresh_feed()
+            else:
+                error = response.json().get("error", "Failed to upvote post")
+                messagebox.showerror("Error", error)
+        except Exception as e:
+            messagebox.showerror("Error", f"Failed to upvote post: {e}")
+
+    def save_token(self):
+        if self.token and self.username:
             try:
-                resp = requests.post(f"{self.server_url}/post", json={"title": title, "content": content}, headers={"Authorization": f"Bearer {self.token}"})
-                if resp.status_code == 200:
-                    messagebox.showinfo("Success", "Post created!")
-                    win.destroy()
-                    self.load_feed()
-                else:
-                    messagebox.showerror("Error", resp.json().get("error", f"Failed to post ({resp.status_code})"))
+                with open("token.txt", "w") as file:
+                    json.dump({"token": self.token, "username": self.username}, file)
             except Exception as e:
-                messagebox.showerror("Error", str(e))
-        submit_btn = ctk.CTkButton(win, text="Submit", command=submit)
-        submit_btn.pack(pady=10)
+                print(f"Error saving token: {e}")
 
-class RSSXClient(ctk.CTk):
-    def __init__(self):
-        super().__init__()
-        self.title("RSSX - Stylish Federated Social Client")
-        self.geometry("1100x750")
-        self.resizable(True, True)
-        self.protocol("WM_DELETE_WINDOW", self.on_close)
+    def load_token(self):
+        if os.path.exists("token.txt"):
+            try:
+                with open("token.txt", "r") as file:
+                    data = json.load(file)
+                    self.token = data.get("token")
+                    self.username = data.get("username")
+                    if self.token and self.username:
+                        self.status_var.set(f"Logged in as {self.username}")
+            except Exception as e:
+                print(f"Error loading token: {e}")
 
-        # Sidebar
-        self.sidebar = ctk.CTkFrame(self, width=200, corner_radius=0)
-        self.sidebar.pack(side="left", fill="y")
-        self.logo = ctk.CTkLabel(self.sidebar, text="RSSX", font=("Segoe UI", 28, "bold"))
-        self.logo.pack(pady=(40, 20))
-        self.add_tab_btn = ctk.CTkButton(self.sidebar, text="+ New Tab", command=self.add_tab)
-        self.add_tab_btn.pack(pady=10, fill="x")
-        self.logout_btn = ctk.CTkButton(self.sidebar, text="Close Tab", command=self.close_current_tab)
-        self.logout_btn.pack(side="bottom", pady=20, fill="x")
+    def run(self):
+        self.root.mainloop()
 
-        # Tabs bar
-        self.tabs_bar = ctk.CTkFrame(self, height=40, corner_radius=0)
-        self.tabs_bar.pack(side="top", fill="x")
-        self.tabs_area = ctk.CTkFrame(self, corner_radius=15)
-        self.tabs_area.pack(side="left", fill="both", expand=True, padx=30, pady=30)
-
-        self.tabs = []
-        self.tab_buttons = []
-        self.current_tab = None
-        self.add_tab()
-
-    def add_tab(self):
-        server_url = simpledialog.askstring("Server URL", "Enter RSSX server API URL (e.g. http://localhost:5000/api):", parent=self)
-        if not server_url:
-            return
-        tab = ServerTab(self, server_url)
-        self.tabs.append(tab)
-        btn = ctk.CTkButton(self.tabs_bar, text=server_url, command=lambda t=tab: self.switch_tab(t), width=180)
-        btn.pack(side="left", padx=5, pady=5)
-        self.tab_buttons.append(btn)
-        self.switch_tab(tab)
-
-    def switch_tab(self, tab):
-        if self.current_tab:
-            self.current_tab.frame.pack_forget()
-        self.current_tab = tab
-        tab.frame.pack(fill="both", expand=True)
-
-    def close_current_tab(self):
-        if not self.current_tab:
-            return
-        idx = self.tabs.index(self.current_tab)
-        self.current_tab.frame.destroy()
-        self.tab_buttons[idx].destroy()
-        del self.tabs[idx]
-        del self.tab_buttons[idx]
-        self.current_tab = None
-        if self.tabs:
-            self.switch_tab(self.tabs[-1])
-
-    def on_close(self):
-        self.destroy()
+def launch_tkinter_ui(config):
+    ui = RSSXTkinterUI(config)
+    ui.run()
 
 if __name__ == "__main__":
-    app = RSSXClient()
-    app.mainloop()
+    import sys
+    sys.path.append('/home/viktor/Documents/RSSX/rssx')
+    from utils.config import Config
+    config = Config()
+    launch_tkinter_ui(config)
