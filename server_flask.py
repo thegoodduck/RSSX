@@ -22,6 +22,7 @@ user_comment_times = defaultdict(lambda: deque(maxlen=THROTTLE_LIMIT))
 user_last_post_content = {}
 user_last_comment_content = {}
 
+
 class RSSXApi:
     def __init__(self, database, security):
         """Initialize the API with database and security instances"""
@@ -57,16 +58,16 @@ class RSSXApi:
         self.api.route("/comment", methods=["POST"])(self.create_comment)
 
         # Public key route
-        self.api.route('/public_key', methods=['GET'])(self.get_public_key)
+        self.api.route("/public_key", methods=["GET"])(self.get_public_key)
 
         # Federated post route
-        self.api.route('/receive_post', methods=['POST'])(self.receive_post)
+        self.api.route("/receive_post", methods=["POST"])(self.receive_post)
 
         # Federated comment receive endpoint
-        self.api.route('/receive_comment', methods=['POST'])(self.receive_comment)
+        self.api.route("/receive_comment", methods=["POST"])(self.receive_comment)
 
         # Federated vote receive endpoint
-        self.api.route('/receive_vote', methods=['POST'])(self.receive_vote)
+        self.api.route("/receive_vote", methods=["POST"])(self.receive_vote)
 
     def receive_comment(self):
         """Receive a federated comment encrypted for this server"""
@@ -106,13 +107,17 @@ class RSSXApi:
         # Decrypt the content with the server's private key (if encrypted)
         try:
             from base64 import b64decode
-            logger.info(f"Attempting to decrypt federated comment from {federated_from} with content: {content[:40]}...")
-            decrypted_bytes = self.security.private_key.decrypt(
-                b64decode(content),
-                self.security._get_rsa_padding()
+
+            logger.info(
+                f"Attempting to decrypt federated comment from {federated_from} with content: {content[:40]}..."
             )
-            plaintext_content = decrypted_bytes.decode('utf-8')
-            logger.info(f"Decryption successful. Plaintext: {plaintext_content[:40]}...")
+            decrypted_bytes = self.security.private_key.decrypt(
+                b64decode(content), self.security._get_rsa_padding()
+            )
+            plaintext_content = decrypted_bytes.decode("utf-8")
+            logger.info(
+                f"Decryption successful. Plaintext: {plaintext_content[:40]}..."
+            )
         except Exception as e:
             logger.error(f"Failed to decrypt federated comment: {e}")
             return jsonify({"error": "Failed to decrypt federated comment"}), 400
@@ -123,14 +128,21 @@ class RSSXApi:
             "content": plaintext_content,
             "post_id": post_id,
             "signature": signature,
-            "federated_from": federated_from
+            "federated_from": federated_from,
         }
         comment_id = self.db.save_comment(comment_data)
         if not comment_id:
             logger.error(f"Failed to save federated comment from {federated_from}")
             return jsonify({"error": "Failed to save federated comment"}), 500
-        logger.info(f"Federated comment received from {federated_from} for post {post_id}")
-        return jsonify({"message": "Federated comment received", "comment_id": comment_id}), 201
+        logger.info(
+            f"Federated comment received from {federated_from} for post {post_id}"
+        )
+        return (
+            jsonify(
+                {"message": "Federated comment received", "comment_id": comment_id}
+            ),
+            201,
+        )
 
     def receive_vote(self):
         """Receive a federated upvote/downvote for a post from another server"""
@@ -161,9 +173,9 @@ class RSSXApi:
                 logger.error(f"Error forwarding federated vote: {e}")
                 return jsonify({"error": "Network error forwarding vote to origin server"}), 502
         # Use voter as username for uniqueness
-        if vote_type == 'upvote':
+        if vote_type == "upvote":
             success = self.db.upvote_post(post_id, voter)
-        elif vote_type == 'downvote':
+        elif vote_type == "downvote":
             success = self.db.downvote_post(post_id, voter)
         else:
             return jsonify({"error": "Invalid vote_type"}), 400
@@ -209,7 +221,10 @@ class RSSXApi:
         # Spam filter: block blacklisted words
         for word in BLACKLISTED_WORDS:
             if word.lower() in content.lower():
-                return jsonify({"error": f"Spam detected: '{word}' is not allowed"}), 400
+                return (
+                    jsonify({"error": f"Spam detected: '{word}' is not allowed"}),
+                    400,
+                )
 
         # Create comment data
         timestamp = int(time.time())
@@ -231,8 +246,15 @@ class RSSXApi:
         if not comment_id:
             logger.error(f"Failed to save comment for user: {username}")
             return jsonify({"error": "Failed to save comment"}), 500
-        logger.info(f"Comment created by {username} with ID: {comment_id} for post {post_id}")
-        return jsonify({"message": "Comment created successfully", "comment_id": comment_id}), 201
+        logger.info(
+            f"Comment created by {username} with ID: {comment_id} for post {post_id}"
+        )
+        return (
+            jsonify(
+                {"message": "Comment created successfully", "comment_id": comment_id}
+            ),
+            201,
+        )
 
     def register(self):
         """Register a new user"""
@@ -333,7 +355,10 @@ class RSSXApi:
         # Spam filter: block blacklisted words
         for word in BLACKLISTED_WORDS:
             if word.lower() in content.lower():
-                return jsonify({"error": f"Spam detected: '{word}' is not allowed"}), 400
+                return (
+                    jsonify({"error": f"Spam detected: '{word}' is not allowed"}),
+                    400,
+                )
 
         # Create post data
         timestamp = int(time.time())
@@ -417,17 +442,22 @@ class RSSXApi:
         """Get all posts sorted by author popularity and upvotes, including comments"""
         posts = self.db.get_all_posts()
         # Sort posts by author popularity and upvotes
-        posts.sort(key=lambda post: (
-            self.db.get_user(post['author']).get('popularity', 0),
-            post.get('upvotes', 0)
-        ), reverse=True)
+        posts.sort(
+            key=lambda post: (
+                self.db.get_user(post["author"]).get("popularity", 0),
+                post.get("upvotes", 0),
+            ),
+            reverse=True,
+        )
         # Attach comments to each post
         for post in posts:
-            comments = self.db.get_comments_for_post(post['id'])
+            comments = self.db.get_comments_for_post(post["id"])
             # Format timestamp for comments
             for comment in comments:
-                comment['timestamp_formatted'] = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(comment['timestamp']))
-            post['comments'] = comments
+                comment["timestamp_formatted"] = time.strftime(
+                    "%Y-%m-%d %H:%M:%S", time.localtime(comment["timestamp"])
+                )
+            post["comments"] = comments
         return jsonify({"posts": posts}), 200
 
     def get_post(self, post_id):
@@ -437,8 +467,10 @@ class RSSXApi:
             return jsonify({"error": "Post not found"}), 404
         comments = self.db.get_comments_for_post(post_id)
         for comment in comments:
-            comment['timestamp_formatted'] = time.strftime('%Y-%m-%d %H:%M:%S', time.localtime(comment['timestamp']))
-        post['comments'] = comments
+            comment["timestamp_formatted"] = time.strftime(
+                "%Y-%m-%d %H:%M:%S", time.localtime(comment["timestamp"])
+            )
+        post["comments"] = comments
         return jsonify({"post": post}), 200
 
     def list_servers(self):
@@ -521,9 +553,10 @@ class RSSXApi:
     def get_public_key(self):
         """Expose the server's public key in PEM format for federation encryption"""
         from cryptography.hazmat.primitives import serialization
+
         pem = self.security.public_key.public_bytes(
             encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
         ).decode()
         return jsonify({"public_key": pem})
 
@@ -543,13 +576,17 @@ class RSSXApi:
         # Decrypt the content with the server's private key (less secure, not E2E)
         try:
             from base64 import b64decode
-            logger.info(f"Attempting to decrypt federated post from {federated_from} with content: {content[:40]}...")
-            decrypted_bytes = self.security.private_key.decrypt(
-                b64decode(content),
-                self.security._get_rsa_padding()
+
+            logger.info(
+                f"Attempting to decrypt federated post from {federated_from} with content: {content[:40]}..."
             )
-            plaintext_content = decrypted_bytes.decode('utf-8')
-            logger.info(f"Decryption successful. Plaintext: {plaintext_content[:40]}...")
+            decrypted_bytes = self.security.private_key.decrypt(
+                b64decode(content), self.security._get_rsa_padding()
+            )
+            plaintext_content = decrypted_bytes.decode("utf-8")
+            logger.info(
+                f"Decryption successful. Plaintext: {plaintext_content[:40]}..."
+            )
         except Exception as e:
             logger.error(f"Failed to decrypt federated post: {e}")
             return jsonify({"error": "Failed to decrypt federated post"}), 400
@@ -559,7 +596,7 @@ class RSSXApi:
             "timestamp": timestamp,
             "content": plaintext_content,
             "signature": signature,
-            "federated_from": federated_from
+            "federated_from": federated_from,
         }
         post_id = self.db.save_post(post_data)
         if not post_id:
@@ -649,6 +686,7 @@ def run_server(config=None, host="0.0.0.0", port=5000, debug=True):
     app.run(
         host=config.get("HOST"), port=int(config.get("PORT")), debug=config.get("DEBUG")
     )
+
 
 def run_tkinter_ui(config=None):
     """Run the Tkinter UI client"""

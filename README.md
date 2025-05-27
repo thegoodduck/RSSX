@@ -20,6 +20,18 @@ RSSX is a secure, federated, and optionally end-to-end encrypted social media pl
 - Python 3.8+
 - `pip install -r requirements.txt`
 
+### Prepare DB - One time setup
+```bash
+python -m rssx.database.db
+```
+- Setup the DB for the application
+- Flags, use either of the flags
+  
+  --init  : Creates a new db with name menitioned in [config.json](config.json)
+  
+  --reset : Moves your old DB to db_backup/
+  
+
 ### Running the Server
 
 ```bash
