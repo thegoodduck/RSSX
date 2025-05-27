@@ -6,7 +6,7 @@
     "PUBLIC_KEY_FILE": "rsa_public.pem",
     "PRIVATE_KEY_FILE": "rsa_private.pem",
     "TOKEN_EXPIRY_HOURS": 24,
-    "DB_PATH": "rssx2.db",
+    "DB_PATH": "rssx.db",
     "POSTS_DIRECTORY": "posts",
     "USERS_FILE": "users.json",
     "SERVERS_FILE": "servers.json",
