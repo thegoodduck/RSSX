@@ -1,5 +1,5 @@
 flask==2.3.2
-requests==2.32.2
+requests==2.32.4
 sqlalchemy==2.0.21
 pandas==2.1.1
 numpy==1.26.0
