@@ -5,7 +5,7 @@ pandas==2.1.1
 numpy==1.26.0
 beautifulsoup4==4.12.2
 lxml==4.9.3
-pytest==7.4.2
+pytest==9.0.3
 gunicorn==23.0.0
 psycopg2-binary==2.9.8
 PyJWT==2.8.0
